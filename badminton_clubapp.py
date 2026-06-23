@@ -14,7 +14,7 @@ import shelve           # Local key-value database system built into Python that
 # --- GLOBAL STAGE INITIALIZATION ---
 st.set_page_config(
     page_title="Badminton Clubhouse Local",  
-    page_icon="🏸",                          
+    page_icon="🏸🏸",                          
     layout="wide",                           
     initial_sidebar_state="collapsed"        
 )
@@ -401,79 +401,79 @@ elif selected_tab == "🎮 Matches & Play":
                 st.rerun()
 
         # ==============================================================================
-        # 🔄 DYNAMIC MID-TOURNAMENT SUBSTITUTION SYSTEM ARCHITECTURE BLOCK
-        # ==============================================================================
-        if st.session_state.room_data["matches"]:                  
-            upcoming_fixtures = [
-                (idx, m) for idx, m in enumerate(st.session_state.room_data["matches"]) 
-                if not m.get("logged", False)
-            ]
+        # # 🔄 DYNAMIC MID-TOURNAMENT SUBSTITUTION SYSTEM ARCHITECTURE BLOCK
+        # # ==============================================================================
+        # if st.session_state.room_data["matches"]:                  
+        #     upcoming_fixtures = [
+        #         (idx, m) for idx, m in enumerate(st.session_state.room_data["matches"]) 
+        #         if not m.get("logged", False)
+        #     ]
             
-            if upcoming_fixtures:                               
-                st.divider()                                    
-                st.subheader("🔄 Dynamic Mid-Tournament Sub")  
-                st.caption("Select an upcoming match. Anyone not stepping onto the court for that game is an eligible sub.")
+        #     if upcoming_fixtures:                               
+        #         st.divider()                                    
+        #         st.subheader("🔄 Dynamic Mid-Tournament Sub")  
+        #         st.caption("Select an upcoming match. Anyone not stepping onto the court for that game is an eligible sub.")
                 
-                match_options = {f"Match #{idx + 1} ({m['type']})": (idx, m) for idx, m in upcoming_fixtures}
-                selected_match_label = st.selectbox("Target Upcoming Match:", list(match_options.keys())) 
-                target_idx, target_match = match_options[selected_match_label] 
+        #         match_options = {f"Match #{idx + 1} ({m['type']})": (idx, m) for idx, m in upcoming_fixtures}
+        #         selected_match_label = st.selectbox("Target Upcoming Match:", list(match_options.keys())) 
+        #         target_idx, target_match = match_options[selected_match_label] 
                 
-                on_court_players = sorted(list(set(target_match["team_a"] + target_match["team_b"])))
-                on_court_players = [p for p in on_court_players if p != "TBD"] 
+        #         on_court_players = sorted(list(set(target_match["team_a"] + target_match["team_b"])))
+        #         on_court_players = [p for p in on_court_players if p != "TBD"] 
                 
-                if on_court_players:                             
-                    player_leaving = st.selectbox("Player Stepping Down:", on_court_players, key="sub_leave_select")
-                    available_subs = sorted([p for p in st.session_state.room_data["players"] if p not in on_court_players])
-                    sub_source = st.radio("Replacement Entry:", ["Select Available Active Player", "Register New Player"], horizontal=True)
-                    player_entering = ""                         
+        #         if on_court_players:                             
+        #             player_leaving = st.selectbox("Player Stepping Down:", on_court_players, key="sub_leave_select")
+        #             available_subs = sorted([p for p in st.session_state.room_data["players"] if p not in on_court_players])
+        #             sub_source = st.radio("Replacement Entry:", ["Select Available Active Player", "Register New Player"], horizontal=True)
+        #             player_entering = ""                         
                     
-                    if sub_source == "Select Available Active Player": 
-                        if available_subs:                       
-                            player_entering = st.selectbox("Available Players:", available_subs, key="sub_active_select") 
-                        else:
-                            st.caption("ℹ️ All registered players are currently playing in this match.") 
-                    else:
-                        player_entering = st.text_input("Type New Player Name:", key="sub_enter_input").strip() 
+        #             if sub_source == "Select Available Active Player": 
+        #                 if available_subs:                       
+        #                     player_entering = st.selectbox("Available Players:", available_subs, key="sub_active_select") 
+        #                 else:
+        #                     st.caption("ℹ️ All registered players are currently playing in this match.") 
+        #             else:
+        #                 player_entering = st.text_input("Type New Player Name:", key="sub_enter_input").strip() 
                     
-                    if st.button("Apply Match Substitution", use_container_width=True, type="secondary"): 
-                        if player_entering:                      
-                            # 🚀 RE-PATCHED STRING MATCHING LOGIC (Both sides are evaluated cleanly in lowercase)
-                            target_leaving = player_leaving.strip().lower()
-                            target_entering = player_entering.strip() 
+        #             if st.button("Apply Match Substitution", use_container_width=True, type="secondary"): 
+        #                 if player_entering:                      
+        #                     # 🚀 RE-PATCHED STRING MATCHING LOGIC (Both sides are evaluated cleanly in lowercase)
+        #                     target_leaving = player_leaving.strip().lower()
+        #                     target_entering = player_entering.strip() 
                             
-                            swap_occurred = False                
-                            matches_updated_count = 0            
+        #                     swap_occurred = False                
+        #                     matches_updated_count = 0            
                             
-                            if target_entering not in st.session_state.room_data["players"]:
-                                st.session_state.room_data["players"].append(target_entering) 
-                                st.session_state.room_data["expenses"][target_entering] = 0.0 
+        #                     if target_entering not in st.session_state.room_data["players"]:
+        #                         st.session_state.room_data["players"].append(target_entering) 
+        #                         st.session_state.room_data["expenses"][target_entering] = 0.0 
                             
-                            for idx in range(target_idx, len(st.session_state.room_data["matches"])):
-                                current_m = st.session_state.room_data["matches"][idx] 
+        #                     for idx in range(target_idx, len(st.session_state.room_data["matches"])):
+        #                         current_m = st.session_state.room_data["matches"][idx] 
                                 
-                                if not current_m.get("logged", False): 
-                                    old_team_a = list(current_m["team_a"])
-                                    old_team_b = list(current_m["team_b"])
+        #                         if not current_m.get("logged", False): 
+        #                             old_team_a = list(current_m["team_a"])
+        #                             old_team_b = list(current_m["team_b"])
                                     
-                                    # Fix validation line applied to handle exact structural casing mismatches safely
-                                    current_m["team_a"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_a"]]
-                                    current_m["team_b"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_b"]]
+        #                             # Fix validation line applied to handle exact structural casing mismatches safely
+        #                             current_m["team_a"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_a"]]
+        #                             current_m["team_b"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_b"]]
                                     
-                                    if current_m["team_a"] != old_team_a or current_m["team_b"] != old_team_b:
-                                        swap_occurred = True     
-                                        matches_updated_count += 1 
+        #                             if current_m["team_a"] != old_team_a or current_m["team_b"] != old_team_b:
+        #                                 swap_occurred = True     
+        #                                 matches_updated_count += 1 
                             
-                            for t_idx, team in enumerate(st.session_state.room_data["teams"]):
-                                st.session_state.room_data["teams"][t_idx] = [target_entering if p.strip().lower() == target_leaving else p for p in team]
+        #                     for t_idx, team in enumerate(st.session_state.room_data["teams"]):
+        #                         st.session_state.room_data["teams"][t_idx] = [target_entering if p.strip().lower() == target_leaving else p for p in team]
                             
-                            if not swap_occurred:                
-                                st.error(f"❌ Swap Execution Failed: No match files matched player '{player_leaving}' from Match #{target_idx + 1} onwards.")
-                            else:                                
-                                save_local_data(room_code, st.session_state.room_data) 
-                                st.toast(f"🔄 Swapped {player_leaving} with {target_entering} across {matches_updated_count} upcoming matches!") 
-                                st.rerun()                       
-                        else:
-                            st.error("Please pick or type a valid replacement player.")
+        #                     if not swap_occurred:                
+        #                         st.error(f"❌ Swap Execution Failed: No match files matched player '{player_leaving}' from Match #{target_idx + 1} onwards.")
+        #                     else:                                
+        #                         save_local_data(room_code, st.session_state.room_data) 
+        #                         st.toast(f"🔄 Swapped {player_leaving} with {target_entering} across {matches_updated_count} upcoming matches!") 
+        #                         st.rerun()                       
+        #                 else:
+        #                     st.error("Please pick or type a valid replacement player.")
 
     # ==============================================================================
     # 🎮 TAB WORKSPACE MODULE 2 (RIGHT COMPONENT): LIVE SCOREBOARD INTERFACE
