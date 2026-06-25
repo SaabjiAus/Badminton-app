@@ -1,5 +1,5 @@
 # ==============================================================================
-# 🏸 BADMINTON CLUBHOUSE LOCAL ENGINE - COMPLETE ARCHITECTURE WITH ODD-PLAYER LOGIC
+# 🏸 BADMINTON CLUBHOUSE CLOUD ENGINE - COMPLETE UPDATED SUPABASE ARCHITECTURE
 # ==============================================================================
 
 # --- DEPENDENCY REGISTRATION ---
@@ -9,69 +9,80 @@ import uuid
 import pandas as pd     
 import itertools        
 import datetime         
-import shelve           
+from supabase import create_client, Client  # Cloud database package
 
 # --- GLOBAL STAGE INITIALIZATION ---
 st.set_page_config(
-    page_title="Badminton Clubhouse Local",  
-    page_icon="🏸🏸",                          
+    page_title="Badminton Clubhouse Cloud",  
+    page_icon="🏸",                          
     layout="wide",                           
     initial_sidebar_state="collapsed"        
 )
 
-DB_FILE = "badminton_clubhouse_db"
+# ==============================================================================
+# 💾 SECTION 1: SUPABASE LIVE CLOUD STORAGE MANAGEMENT FUNCTIONS
+# ==============================================================================
 
-# ==============================================================================
-# 💾 SECTION 1: PERSISTENT STORAGE MANAGEMENT FUNCTIONS
-# ==============================================================================
+# Establish secure client socket using Streamlit's structural secrets architecture
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_local_data(room_name):
-    with shelve.open(DB_FILE) as db:
-        if room_name not in db:
-            default_data = {
-                "players": [],              
-                "teams": [],                
-                "matches": [],              
-                "expenses": {},             
-                "ind_leaderboard": {},      
-                "team_leaderboard": {},     
-                "created_at": str(datetime.date.today()), 
-                "total_visits": 1           
-            }
-            db[room_name] = default_data    
-            return default_data             
+    """Fetches room configuration JSON out of the Supabase cloud table."""
+    try:
+        response = supabase_client.table("clubhouse_rooms").select("room_data").eq("room_id", room_name).execute()
         
-        data = db[room_name]                
-        if "total_visits" not in data: data["total_visits"] = 0        
-        data["total_visits"] += 1           
+        if response.data:
+            data = response.data[0]["room_data"]
+            # System maintenance check & visit counter scaling
+            if "total_visits" not in data: data["total_visits"] = 0        
+            data["total_visits"] += 1           
+            
+            updated = False                     
+            for key, default_val in [
+                ("players", []), ("teams", []), ("matches", []), 
+                ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
+                ("created_at", str(datetime.date.today()))
+            ]:
+                if key not in data:             
+                    data[key] = default_val     
+                    updated = True              
+                    
+            if updated: 
+                save_local_data(room_name, data)            
+            return data                         
         
-        updated = False                     
-        for key, default_val in [
-            ("players", []), ("teams", []), ("matches", []), 
-            ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
-            ("created_at", str(datetime.date.today()))
-        ]:
-            if key not in data:             
-                data[key] = default_val     
-                updated = True              
-                
-        if updated: db[room_name] = data            
-        return data                         
+        # If room record doesn't exist, generate standard baseline JSON structure
+        default_data = {
+            "players": [], "teams": [], "matches": [], "expenses": {},             
+            "ind_leaderboard": {}, "team_leaderboard": {},     
+            "created_at": str(datetime.date.today()), "total_visits": 1           
+        }
+        supabase_client.table("clubhouse_rooms").insert({"room_id": room_name, "room_data": default_data}).execute()
+        return default_data
+        
+    except Exception as e:
+        st.error(f"🚨 Supabase Fetch Failure: {e}")
+        return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}}
 
 def save_local_data(room_name, data):
-    with shelve.open(DB_FILE) as db:        
-        db[room_name] = data                
+    """Pushes your updated match layouts directly up to the Supabase cloud table."""
+    try:
+        supabase_client.table("clubhouse_rooms").update({"room_data": data, "updated_at": "now()"}).eq("room_id", room_name).execute()
+    except Exception as e:
+        st.error(f"🚨 Supabase Update Sync Failure: {e}")
 
 # ==============================================================================
 # 🔑 SECTION 2: ACCESS CONTROL GATEWAY INTERFACE
 # ==============================================================================
 
 if "room_id" not in st.session_state:
-    st.title("🏸 Badminton Clubhouse Portal (Local Mode)") 
+    st.title("🏸 Badminton Clubhouse Portal (Cloud Mode)") 
     room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
     
     if st.button("Enter Dashboard", type="primary"): 
-        if room_input == "ADMIN-STATS1313$":              
+        if room_input == "ADMIN-STATS":              
             st.session_state.room_id = "ADMIN_PANEL" 
             st.rerun()                               
         elif room_input:                             
@@ -89,8 +100,8 @@ if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
 # ==============================================================================
 
 if st.session_state.room_id == "ADMIN_PANEL":
-    st.title("🛡️ Central System Analytics (Local Database)")
-    st.subheader("File Footprint & Room Traffic Monitor")
+    st.title("🛡️ Central Cloud Analytics Controls")
+    st.subheader("Global Storage Table Network Audit")
     
     if st.button("⬅️ Log Out of Admin Mode", type="primary"): 
         del st.session_state.room_id                        
@@ -99,19 +110,25 @@ if st.session_state.room_id == "ADMIN_PANEL":
     st.markdown("---")                                      
     admin_summary_data = []                                 
     
-    with shelve.open(DB_FILE) as db:                        
-        for r_id in db.keys():                              
-            room_payload = db[r_id]                         
-            created_date = room_payload.get("created_at", "Legacy Engine Record") 
-            traffic_hits = room_payload.get("total_visits", 1) 
-            registered_players = len(room_payload.get("players", [])) 
-            active_matches = len(room_payload.get("matches", [])) 
-            
-            admin_summary_data.append({
-                "Room Access Code": r_id, "Creation Date": created_date,
-                "Total Dashboard Openings": traffic_hits, "Registered Players": registered_players,
-                "Active Brackets": active_matches
-            })
+    try:
+        # Pull down metadata entries from all operational tables across the server
+        response = supabase_client.table("clubhouse_rooms").select("room_id", "room_data").execute()
+        if response.data:
+            for row in response.data:                              
+                r_id = row["room_id"]
+                room_payload = row["room_data"]
+                created_date = room_payload.get("created_at", "Legacy Engine Record") 
+                traffic_hits = room_payload.get("total_visits", 1) 
+                registered_players = len(room_payload.get("players", [])) 
+                active_matches = len(room_payload.get("matches", [])) 
+                
+                admin_summary_data.append({
+                    "Room Access Code": r_id, "Creation Date": created_date,
+                    "Total Dashboard Openings": traffic_hits, "Registered Players": registered_players,
+                    "Active Brackets": active_matches
+                })
+    except Exception as e:
+        st.error(f"Admin Data Retrieval Failure: {e}")
         
     st.metric(label="Total Created Activity Rooms", value=len(admin_summary_data))
     st.markdown("### 📋 Active Storage Register")
@@ -133,7 +150,7 @@ if st.session_state.room_id == "ADMIN_PANEL":
 col1, col2 = st.columns([4, 1])                             
 with col1:
     st.title(f"🏸 Match & Tournament Hub")
-    st.caption(f"Active Local Room: **{room_code}**")      
+    st.caption(f"Active Live Cloud Room: **{room_code}**")      
 with col2:
     if st.button("Change Room / Exit", use_container_width=True): 
         del st.session_state.room_id                        
@@ -143,10 +160,6 @@ with col2:
 st.markdown("---")
 
 def generate_and_lock_teams(match_format):
-    """
-    Core Matchmaking Logic updated with ODD-PLAYER generation matrix.
-    If 5 players are present, teams are formed for 4, and the 5th creates a team with everyone else.
-    """
     master_player_list = list(st.session_state.room_data["players"]) 
     shuffled_pool = list(master_player_list)                               
     random.shuffle(shuffled_pool)                               
@@ -156,16 +169,12 @@ def generate_and_lock_teams(match_format):
         for p in shuffled_pool:                                 
             st.session_state.room_data["teams"].append([p])     
     else:                                                       
-        # 1. Generate standard non-overlapping doubles teams
         while len(shuffled_pool) >= 2:                          
             st.session_state.room_data["teams"].append([shuffled_pool.pop(), shuffled_pool.pop()]) 
             
-        # 2. Odd-Player Generation Logic Trigger
         if len(shuffled_pool) == 1:
             odd_player = shuffled_pool.pop()
-            # Loop through the original complete roster
             for other_player in master_player_list:
-                # Pair the odd player with everyone else (as long as it's not themselves)
                 if other_player != odd_player:
                     st.session_state.room_data["teams"].append([odd_player, other_player])
             
@@ -266,9 +275,8 @@ elif selected_tab == "🎮 Matches & Play":
     
     with col_cfg:
         st.subheader("⚙️ Team Generation & Fixtures")
-        # 🔥 FIX: Added index=1 so "Doubles" is ticked by default when the user loads the screen.
         match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=15, min_value=1) 
+        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=21, min_value=1) 
         final_pts = st.number_input("Target Points (Grand Final Only):", value=21, min_value=1) 
         
         col_btn1, col_btn2 = st.columns(2)                       
@@ -300,21 +308,16 @@ elif selected_tab == "🎮 Matches & Play":
         num_teams = len(st.session_state.room_data["teams"])    
         m_count = st.number_input("Number of Matches to Draw:", min_value=1, value=max(1, num_teams)) 
 
-        # --- MATCH SCHEDULING SIMULATION ENGINE ---
         if num_teams >= 2:
-            # Generate mathematically valid pairings (Ensuring no player plays against themselves)
             valid_sim_pairings = []
             for i, j in itertools.combinations(range(num_teams), 2):
                 team_a_roster = set(st.session_state.room_data["teams"][i])
                 team_b_roster = set(st.session_state.room_data["teams"][j])
-                
-                # Check for physical reality: A player cannot exist on both sides of the net
                 if team_a_roster.isdisjoint(team_b_roster):
                     valid_sim_pairings.append((i, j))
             
             if valid_sim_pairings:
                 simulated_counts = {i: 0 for i in range(num_teams)} 
-                
                 for i in range(int(m_count)):
                     pair = valid_sim_pairings[i % len(valid_sim_pairings)]       
                     simulated_counts[pair[0]] += 1                   
@@ -330,12 +333,10 @@ elif selected_tab == "🎮 Matches & Play":
             else:
                 st.error("⚠️ Cannot form valid non-overlapping matches with the current teams.")
 
-        # --- FIXTURES DRAW TRIGGER ACTIONS ---
         if st.button("🎲 Draw Random Matches", use_container_width=True):
             if len(st.session_state.room_data["teams"]) < 2:
                 st.error("Need at least 2 locked teams!")
             else:
-                # 🛡️ PHYSICAL REALITY FILTER FOR DRAW GENERATION
                 valid_draw_pairs = []
                 for team_a, team_b in itertools.combinations(st.session_state.room_data["teams"], 2):
                     if set(team_a).isdisjoint(set(team_b)):
@@ -346,7 +347,6 @@ elif selected_tab == "🎮 Matches & Play":
                 else:
                     random.shuffle(valid_draw_pairs)                        
                     fixtures = []                                    
-                    
                     for i in range(int(m_count)):
                         pair = valid_draw_pairs[i % len(valid_draw_pairs)]         
                         fixtures.append({
@@ -385,9 +385,6 @@ elif selected_tab == "🎮 Matches & Play":
                     save_local_data(room_code, st.session_state.room_data)
                     st.rerun()
 
-        # ==============================================================================
-        # 🔄 DYNAMIC MID-TOURNAMENT SUBSTITUTION SYSTEM
-        # ==============================================================================
         if st.session_state.room_data["matches"]:                  
             upcoming_fixtures = [(idx, m) for idx, m in enumerate(st.session_state.room_data["matches"]) if not m.get("logged", False)]
             
@@ -446,9 +443,6 @@ elif selected_tab == "🎮 Matches & Play":
                                 st.rerun()                       
                         else: st.error("Please pick or type a valid replacement.")
 
-    # ==============================================================================
-    # 🎮 TAB WORKSPACE MODULE 2 (RIGHT COMPONENT): LIVE SCOREBOARD INTERFACE
-    # ==============================================================================
     with col_play:
         st.subheader("Live Scoreboard")
         if st.session_state.room_data["matches"] and st.button("🗑️ Clear Current Fixtures"):
@@ -518,9 +512,6 @@ elif selected_tab == "🎮 Matches & Play":
                     st.success("✅ Saved to Leaderboard!")
             st.divider()                                         
 
-# ==============================================================================
-# 🏆 TAB WORKSPACE MODULE 3: LEADERBOARDS
-# ==============================================================================
 elif selected_tab == "🏆 Leaderboards":
     st.subheader("📈 All-Time Standings")
     ind_stats = st.session_state.room_data["ind_leaderboard"]    
