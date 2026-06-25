@@ -71,7 +71,7 @@ if "room_id" not in st.session_state:
     room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
     
     if st.button("Enter Dashboard", type="primary"): 
-        if room_input == "ADMIN-STATS":              
+        if room_input == "ADMIN-STATS1313$":              
             st.session_state.room_id = "ADMIN_PANEL" 
             st.rerun()                               
         elif room_input:                             
@@ -268,7 +268,7 @@ elif selected_tab == "🎮 Matches & Play":
         st.subheader("⚙️ Team Generation & Fixtures")
         # 🔥 FIX: Added index=1 so "Doubles" is ticked by default when the user loads the screen.
         match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=21, min_value=1) 
+        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=15, min_value=1) 
         final_pts = st.number_input("Target Points (Grand Final Only):", value=21, min_value=1) 
         
         col_btn1, col_btn2 = st.columns(2)                       
