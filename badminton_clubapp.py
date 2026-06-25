@@ -276,7 +276,7 @@ elif selected_tab == "🎮 Matches & Play":
     with col_cfg:
         st.subheader("⚙️ Team Generation & Fixtures")
         match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=21, min_value=1) 
+        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=15, min_value=1) 
         final_pts = st.number_input("Target Points (Grand Final Only):", value=21, min_value=1) 
         
         col_btn1, col_btn2 = st.columns(2)                       
