@@ -1,15 +1,14 @@
 # ==============================================================================
-# 🏸 BADMINTON CLUBHOUSE CLOUD ENGINE - COMPLETE UPDATED SUPABASE ARCHITECTURE
+# 🏸 BADMINTON CLUBHOUSE - STREAMLIT CLOUD + SUPABASE PRODUCTION ENGINE
 # ==============================================================================
 
-# --- DEPENDENCY REGISTRATION ---
 import streamlit as st  
 import random           
 import uuid             
 import pandas as pd     
 import itertools        
 import datetime         
-from supabase import create_client, Client  # Cloud database package
+from supabase import create_client, Client  
 
 # --- GLOBAL STAGE INITIALIZATION ---
 st.set_page_config(
@@ -23,19 +22,16 @@ st.set_page_config(
 # 💾 SECTION 1: SUPABASE LIVE CLOUD STORAGE MANAGEMENT FUNCTIONS
 # ==============================================================================
 
-# Establish secure client socket using Streamlit's structural secrets architecture
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_local_data(room_name):
-    """Fetches room configuration JSON out of the Supabase cloud table."""
     try:
         response = supabase_client.table("clubhouse_rooms").select("room_data").eq("room_id", room_name).execute()
         
         if response.data:
             data = response.data[0]["room_data"]
-            # System maintenance check & visit counter scaling
             if "total_visits" not in data: data["total_visits"] = 0        
             data["total_visits"] += 1           
             
@@ -49,11 +45,9 @@ def get_local_data(room_name):
                     data[key] = default_val     
                     updated = True              
                     
-            if updated: 
-                save_local_data(room_name, data)            
+            if updated: save_local_data(room_name, data)            
             return data                         
         
-        # If room record doesn't exist, generate standard baseline JSON structure
         default_data = {
             "players": [], "teams": [], "matches": [], "expenses": {},             
             "ind_leaderboard": {}, "team_leaderboard": {},     
@@ -67,28 +61,32 @@ def get_local_data(room_name):
         return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}}
 
 def save_local_data(room_name, data):
-    """Pushes your updated match layouts directly up to the Supabase cloud table."""
     try:
         supabase_client.table("clubhouse_rooms").update({"room_data": data, "updated_at": "now()"}).eq("room_id", room_name).execute()
     except Exception as e:
         st.error(f"🚨 Supabase Update Sync Failure: {e}")
 
 # ==============================================================================
-# 🔑 SECTION 2: ACCESS CONTROL GATEWAY INTERFACE
+# 🔑 SECTION 2: ACCESS CONTROL GATEWAY INTERFACE (STICKY URLs)
 # ==============================================================================
 
 if "room_id" not in st.session_state:
-    st.title("🏸 Badminton Clubhouse Portal (Cloud Mode)") 
-    room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
-    
-    if st.button("Enter Dashboard", type="primary"): 
-        if room_input == "ADMIN-STATS":              
-            st.session_state.room_id = "ADMIN_PANEL" 
-            st.rerun()                               
-        elif room_input:                             
-            st.session_state.room_id = room_input    
-            st.rerun()                               
-    st.stop()                                        
+    if "room" in st.query_params:
+        st.session_state.room_id = st.query_params["room"]
+    else:
+        st.title("🏸 Badminton Clubhouse Portal (Cloud Mode)") 
+        room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
+        
+        if st.button("Enter Dashboard", type="primary"): 
+            if room_input == "ADMIN-STATS":              
+                st.session_state.room_id = "ADMIN_PANEL" 
+                st.query_params["room"] = "ADMIN_PANEL"
+                st.rerun()                               
+            elif room_input:                             
+                st.session_state.room_id = room_input    
+                st.query_params["room"] = room_input
+                st.rerun()                               
+        st.stop()                                        
 
 room_code = st.session_state.room_id
 
@@ -96,49 +94,41 @@ if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
     st.session_state.room_data = get_local_data(room_code) 
 
 # ==============================================================================
-# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (BACKDOOR ADMINISTRATIVE COMPONENT)
+# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (ADMIN PANEL)
 # ==============================================================================
 
 if st.session_state.room_id == "ADMIN_PANEL":
     st.title("🛡️ Central Cloud Analytics Controls")
-    st.subheader("Global Storage Table Network Audit")
     
     if st.button("⬅️ Log Out of Admin Mode", type="primary"): 
         del st.session_state.room_id                        
+        if "room" in st.query_params: del st.query_params["room"]
         st.rerun()                                          
         
     st.markdown("---")                                      
     admin_summary_data = []                                 
     
     try:
-        # Pull down metadata entries from all operational tables across the server
         response = supabase_client.table("clubhouse_rooms").select("room_id", "room_data").execute()
         if response.data:
             for row in response.data:                              
                 r_id = row["room_id"]
                 room_payload = row["room_data"]
-                created_date = room_payload.get("created_at", "Legacy Engine Record") 
-                traffic_hits = room_payload.get("total_visits", 1) 
-                registered_players = len(room_payload.get("players", [])) 
-                active_matches = len(room_payload.get("matches", [])) 
-                
                 admin_summary_data.append({
-                    "Room Access Code": r_id, "Creation Date": created_date,
-                    "Total Dashboard Openings": traffic_hits, "Registered Players": registered_players,
-                    "Active Brackets": active_matches
+                    "Room Access Code": r_id, 
+                    "Creation Date": room_payload.get("created_at", "Legacy"),
+                    "Total Dashboard Openings": room_payload.get("total_visits", 1), 
+                    "Registered Players": len(room_payload.get("players", [])),
+                    "Active Brackets": len(room_payload.get("matches", []))
                 })
     except Exception as e:
         st.error(f"Admin Data Retrieval Failure: {e}")
         
     st.metric(label="Total Created Activity Rooms", value=len(admin_summary_data))
-    st.markdown("### 📋 Active Storage Register")
         
     if admin_summary_data:                                  
         df_admin = pd.DataFrame(admin_summary_data)         
         st.dataframe(df_admin, use_container_width=True)    
-        
-        csv = df_admin.to_csv(index=False).encode('utf-8')  
-        st.download_button(label="📥 Download Database Metadata CSV Report", data=csv, file_name="audit.csv", mime="text/csv")
     else:
         st.info("System storage arrays are completely blank right now.") 
     st.stop()                                               
@@ -155,13 +145,13 @@ with col2:
     if st.button("Change Room / Exit", use_container_width=True): 
         del st.session_state.room_id                        
         if "room_data" in st.session_state: del st.session_state.room_data                  
+        if "room" in st.query_params: del st.query_params["room"]
         st.rerun()
 
 st.markdown("---")
 
-def generate_and_lock_teams(match_format):
-    master_player_list = list(st.session_state.room_data["players"]) 
-    shuffled_pool = list(master_player_list)                               
+def generate_and_lock_teams(match_format, active_players):
+    shuffled_pool = list(active_players)                               
     random.shuffle(shuffled_pool)                               
     st.session_state.room_data["teams"] = []                    
     
@@ -174,7 +164,7 @@ def generate_and_lock_teams(match_format):
             
         if len(shuffled_pool) == 1:
             odd_player = shuffled_pool.pop()
-            for other_player in master_player_list:
+            for other_player in active_players:
                 if other_player != odd_player:
                     st.session_state.room_data["teams"].append([odd_player, other_player])
             
@@ -193,9 +183,6 @@ def log_match_to_history(match):
     for p in match["team_a"] + match["team_b"]:
         if p not in ind_lb:
             ind_lb[p] = {"Wins": 0, "Points": 0, "Singles Played": 0, "Doubles Played": 0, "Grand Finals Won": 0}
-        if "Singles Played" not in ind_lb[p]: ind_lb[p]["Singles Played"] = 0
-        if "Doubles Played" not in ind_lb[p]: ind_lb[p]["Doubles Played"] = 0
-        if "Grand Finals Won" not in ind_lb[p]: ind_lb[p]["Grand Finals Won"] = 0
         
     team_lb[t_a_name]["Points"] += match["score_a"]             
     team_lb[t_b_name]["Points"] += match["score_b"]             
@@ -203,13 +190,13 @@ def log_match_to_history(match):
     for p in match["team_a"]: ind_lb[p]["Points"] += match["score_a"] 
     for p in match["team_b"]: ind_lb[p]["Points"] += match["score_b"] 
     
-    is_singles_match = len(match["team_a"]) == 1
-    is_doubles_match = len(match["team_a"]) == 2
+    is_singles = len(match["team_a"]) == 1
+    is_doubles = len(match["team_a"]) == 2
     is_gf = match.get("is_final", False) or "GRAND FINAL" in str(match.get("type", "")).upper()
     
     for p in match["team_a"] + match["team_b"]:
-        if is_singles_match: ind_lb[p]["Singles Played"] += 1
-        elif is_doubles_match: ind_lb[p]["Doubles Played"] += 1
+        if is_singles: ind_lb[p]["Singles Played"] += 1
+        elif is_doubles: ind_lb[p]["Doubles Played"] += 1
 
     if match["score_a"] > match["score_b"]:                     
         team_lb[t_a_name]["Wins"] += 1                          
@@ -225,7 +212,7 @@ def log_match_to_history(match):
     save_local_data(room_code, st.session_state.room_data)      
 
 # ==============================================================================
-# 🏆 SECTION 5: SYSTEM APPLICATION VIEWSPACE NAVIGATION TAB BAR
+# 🏆 SECTION 5: NAVIGATION WORKSPACE TABS
 # ==============================================================================
 
 tabs = ["👥 Roster & Expenses", "🎮 Matches & Play", "🏆 Leaderboards"] 
@@ -250,6 +237,7 @@ if selected_tab == "👥 Roster & Expenses":
             col_name.write(f"• {player}")                        
             if col_del.button("🗑️", key=f"del_{player}_{idx}"):  
                 st.session_state.room_data["players"].remove(player) 
+                # Note: We keep them in the leaderboard dict, only removing from current expenses/roster
                 if player in st.session_state.room_data["expenses"]: del st.session_state.room_data["expenses"][player] 
                 save_local_data(room_code, st.session_state.room_data) 
                 st.rerun()
@@ -275,27 +263,36 @@ elif selected_tab == "🎮 Matches & Play":
     
     with col_cfg:
         st.subheader("⚙️ Team Generation & Fixtures")
+        
+        st.markdown("#### 🎯 Today's Lineup")
+        active_players = st.multiselect(
+            "Select players playing this session:",
+            options=st.session_state.room_data["players"],
+            default=st.session_state.room_data["players"],
+            help="Remove anyone who is absent so they aren't placed on a team."
+        )
+
         match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-        max_pts = st.number_input("Target Points (Qualifiers/Regular):", value=15, min_value=1) 
-        final_pts = st.number_input("Target Points (Grand Final Only):", value=21, min_value=1) 
+        max_pts = st.number_input("Target Points (Qualifiers):", value=21, min_value=1) 
+        final_pts = st.number_input("Target Points (Grand Final):", value=21, min_value=1) 
         
         col_btn1, col_btn2 = st.columns(2)                       
         with col_btn1:
             if st.button("👥 Lock Teams", use_container_width=True, type="secondary"):
                 req = 2 if match_type == "Singles" else 4         
-                if len(st.session_state.room_data["players"]) < req: 
-                    st.error(f"Need at least {req} players for this format!")    
+                if len(active_players) < req: 
+                    st.error(f"Need at least {req} active players for this format!")    
                 else:
-                    generate_and_lock_teams(match_type)          
+                    generate_and_lock_teams(match_type, active_players)          
                     st.rerun()
                     
         with col_btn2:
             if st.button("🔓 Unlock & Re-roll", use_container_width=True): 
                 req = 2 if match_type == "Singles" else 4
-                if len(st.session_state.room_data["players"]) < req:
-                    st.error(f"Need at least {req} players for this format!")
+                if len(active_players) < req:
+                    st.error(f"Need at least {req} active players for this format!")
                 else:
-                    generate_and_lock_teams(match_type)
+                    generate_and_lock_teams(match_type, active_players)
                     st.rerun()
 
         if st.session_state.room_data["teams"]:
@@ -307,31 +304,6 @@ elif selected_tab == "🎮 Matches & Play":
 
         num_teams = len(st.session_state.room_data["teams"])    
         m_count = st.number_input("Number of Matches to Draw:", min_value=1, value=max(1, num_teams)) 
-
-        if num_teams >= 2:
-            valid_sim_pairings = []
-            for i, j in itertools.combinations(range(num_teams), 2):
-                team_a_roster = set(st.session_state.room_data["teams"][i])
-                team_b_roster = set(st.session_state.room_data["teams"][j])
-                if team_a_roster.isdisjoint(team_b_roster):
-                    valid_sim_pairings.append((i, j))
-            
-            if valid_sim_pairings:
-                simulated_counts = {i: 0 for i in range(num_teams)} 
-                for i in range(int(m_count)):
-                    pair = valid_sim_pairings[i % len(valid_sim_pairings)]       
-                    simulated_counts[pair[0]] += 1                   
-                    simulated_counts[pair[1]] += 1                   
-                    
-                unique_match_frequencies = set(simulated_counts.values()) 
-                if len(unique_match_frequencies) <= 1:              
-                    st.success("💪 Perfect Balance! All distinct teams play an identical number of matches.")
-                else:                                               
-                    max_m = max(simulated_counts.values())          
-                    shortchanged_teams = [" & ".join(st.session_state.room_data["teams"][t_idx]) for t_idx, count in simulated_counts.items() if count < max_m]
-                    st.warning(f"⚠️ **Uneven Play Warning:** Some pairings appear fewer times:\n" + "\n".join([f"- {t}" for t in shortchanged_teams]))
-            else:
-                st.error("⚠️ Cannot form valid non-overlapping matches with the current teams.")
 
         if st.button("🎲 Draw Random Matches", use_container_width=True):
             if len(st.session_state.room_data["teams"]) < 2:
@@ -384,64 +356,6 @@ elif selected_tab == "🎮 Matches & Play":
                     st.session_state.room_data["matches"] = fixtures
                     save_local_data(room_code, st.session_state.room_data)
                     st.rerun()
-
-        if st.session_state.room_data["matches"]:                  
-            upcoming_fixtures = [(idx, m) for idx, m in enumerate(st.session_state.room_data["matches"]) if not m.get("logged", False)]
-            
-            if upcoming_fixtures:                               
-                st.divider()                                    
-                st.subheader("🔄 Dynamic Mid-Tournament Sub")  
-                match_options = {f"Match #{idx + 1} ({m['type']})": (idx, m) for idx, m in upcoming_fixtures}
-                selected_match_label = st.selectbox("Target Upcoming Match:", list(match_options.keys())) 
-                target_idx, target_match = match_options[selected_match_label] 
-                
-                on_court_players = sorted(list(set(target_match["team_a"] + target_match["team_b"])))
-                on_court_players = [p for p in on_court_players if p != "TBD"] 
-                
-                if on_court_players:                             
-                    player_leaving = st.selectbox("Player Stepping Down:", on_court_players, key="sub_leave_select")
-                    available_subs = sorted([p for p in st.session_state.room_data["players"] if p not in on_court_players])
-                    sub_source = st.radio("Replacement Entry:", ["Select Available Active Player", "Register New Player"], horizontal=True)
-                    player_entering = ""                         
-                    
-                    if sub_source == "Select Available Active Player": 
-                        if available_subs: player_entering = st.selectbox("Available Players:", available_subs, key="sub_active_select") 
-                    else:
-                        player_entering = st.text_input("Type New Player Name:", key="sub_enter_input").strip() 
-                    
-                    if st.button("Apply Match Substitution", use_container_width=True, type="secondary"): 
-                        if player_entering:                      
-                            target_leaving = player_leaving.strip().lower()
-                            target_entering = player_entering.strip() 
-                            swap_occurred = False                
-                            matches_updated_count = 0            
-                            
-                            if target_entering not in st.session_state.room_data["players"]:
-                                st.session_state.room_data["players"].append(target_entering) 
-                                st.session_state.room_data["expenses"][target_entering] = 0.0 
-                            
-                            for idx in range(target_idx, len(st.session_state.room_data["matches"])):
-                                current_m = st.session_state.room_data["matches"][idx] 
-                                if not current_m.get("logged", False): 
-                                    old_team_a = list(current_m["team_a"])
-                                    old_team_b = list(current_m["team_b"])
-                                    
-                                    current_m["team_a"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_a"]]
-                                    current_m["team_b"] = [target_entering if p.strip().lower() == target_leaving else p for p in current_m["team_b"]]
-                                    
-                                    if current_m["team_a"] != old_team_a or current_m["team_b"] != old_team_b:
-                                        swap_occurred = True     
-                                        matches_updated_count += 1 
-                            
-                            for t_idx, team in enumerate(st.session_state.room_data["teams"]):
-                                st.session_state.room_data["teams"][t_idx] = [target_entering if p.strip().lower() == target_leaving else p for p in team]
-                            
-                            if not swap_occurred: st.error(f"❌ Swap Failed: No match files matched '{player_leaving}'.")
-                            else:                                
-                                save_local_data(room_code, st.session_state.room_data) 
-                                st.toast(f"🔄 Swapped {player_leaving} with {target_entering} across {matches_updated_count} upcoming matches!") 
-                                st.rerun()                       
-                        else: st.error("Please pick or type a valid replacement.")
 
     with col_play:
         st.subheader("Live Scoreboard")
@@ -520,12 +434,19 @@ elif selected_tab == "🏆 Leaderboards":
     col_l1, col_l2 = st.columns(2)                                
     with col_l1:
         st.markdown("### 🥇 Individual Leaderboard")
+        
+        # Combine current players and historically tracked players so deleted players aren't lost
+        all_tracked_players = set(st.session_state.room_data.get("players", [])) | set(ind_stats.keys())
+        
         display_profiles = {}
-        for player in st.session_state.room_data.get("players", []):
+        for player in all_tracked_players:
             saved_profile = ind_stats.get(player, {})
+            # Only display players who have actually logged a match or are in the current roster
             display_profiles[player] = {
-                "Wins": saved_profile.get("Wins", 0), "Singles Played": saved_profile.get("Singles Played", 0),
-                "Doubles Played": saved_profile.get("Doubles Played", 0), "Grand Finals Won": saved_profile.get("Grand Finals Won", 0),
+                "Wins": saved_profile.get("Wins", 0), 
+                "Singles Played": saved_profile.get("Singles Played", 0),
+                "Doubles Played": saved_profile.get("Doubles Played", 0), 
+                "Grand Finals Won": saved_profile.get("Grand Finals Won", 0),
                 "Total points scored": saved_profile.get("Points", 0)
             }
             
