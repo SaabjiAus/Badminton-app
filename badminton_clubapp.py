@@ -229,8 +229,9 @@ current_url_tab = st.query_params.get("tab", tabs[0])
 if current_url_tab not in tabs: current_url_tab = tabs[0]
 default_tab_idx = tabs.index(current_url_tab)
 
-# Storing tab navigation explicitly inside session state fixes the Auto-Tab Switch issue!
-selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True, key="tab_navigation") 
+# FIX: Removed `key="tab_navigation"` to prevent StreamlitAPIException crashes
+# Now it relies entirely on the URL state to decide which tab to render.
+selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True) 
 st.query_params["tab"] = selected_tab
 
 # ==============================================================================
@@ -344,8 +345,7 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures 
                 save_local_data(room_code, st.session_state.room_data)
                 
-                # Auto switch to Scoreboard tab
-                st.session_state.tab_navigation = "🎮 Live Scoreboard"
+                # Update URL and Rerun safely to jump to scoreboard
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -376,8 +376,7 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures
                 save_local_data(room_code, st.session_state.room_data)
                 
-                # Auto switch to Scoreboard tab
-                st.session_state.tab_navigation = "🎮 Live Scoreboard"
+                # Update URL and Rerun safely to jump to scoreboard
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -388,7 +387,8 @@ elif selected_tab == "⚡ Custom Match":
     st.subheader("⚡ Quick Custom Match Generator")
     st.write("Manually select players for a one-off custom match. This instantly adds the match to the Live Scoreboard.")
     
-    q_format = st.radio("Match Format:", ["Singles", "Doubles"], key="q_format", horizontal=True)
+    # FIX: Added `index=1` so Doubles is selected by default instead of Singles!
+    q_format = st.radio("Match Format:", ["Singles", "Doubles"], index=1, key="q_format", horizontal=True)
     req_players = 1 if q_format == "Singles" else 2
     
     all_players = st.session_state.room_data["players"]
@@ -397,7 +397,7 @@ elif selected_tab == "⚡ Custom Match":
     current_team_a = st.session_state.get("q_team_a", [])
     current_team_b = st.session_state.get("q_team_b", [])
     
-    # Smart filtering: If a player is in Team A, they disappear from Team B's options (and vice-versa!)
+    # Smart filtering: If a player is in Team A, they disappear from Team B's options
     options_for_a = [p for p in all_players if p not in current_team_b]
     options_for_b = [p for p in all_players if p not in current_team_a]
     
@@ -423,8 +423,7 @@ elif selected_tab == "⚡ Custom Match":
             st.session_state.room_data["matches"].append(new_match)
             save_local_data(room_code, st.session_state.room_data)
             
-            # Auto switch to Scoreboard tab dynamically
-            st.session_state.tab_navigation = "🎮 Live Scoreboard"
+            # Update URL and Rerun safely to jump to scoreboard
             st.query_params["tab"] = "🎮 Live Scoreboard"
             st.rerun()
 
