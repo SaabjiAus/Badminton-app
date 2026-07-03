@@ -2,53 +2,39 @@
 # 🏸 BADMINTON CLUBHOUSE - STREAMLIT CLOUD + SUPABASE PRODUCTION ENGINE
 # ==============================================================================
 
-# --- IMPORTING REQUIRED LIBRARIES ---
-import streamlit as st      # The core framework used to build the web app interface
-import random               # Used to shuffle players randomly when making teams
-import uuid                 # Generates unique tracking IDs for each match to prevent score overlap
-import pandas as pd         # Converts your data into clean, sortable tables (DataFrames)
-import itertools            # Used specifically to calculate all possible team matchups
-import datetime             # Used to log the date when a new room is created
-from supabase import create_client, Client  # Tools used to connect to your Supabase cloud database
+import streamlit as st
+import random
+import uuid
+import pandas as pd
+import itertools
+import datetime
+from supabase import create_client, Client
 
 # --- GLOBAL STAGE INITIALIZATION ---
-# Sets up the basic look and behavior of the web browser tab
 st.set_page_config(
-    page_title="Badminton Clubhouse Cloud",  # The text that appears on the browser tab
-    page_icon="🏸",                          # The emoji icon on the browser tab
-    layout="wide",                           # Stretches the app to fill the whole screen width
-    initial_sidebar_state="collapsed"        # Hides Streamlit's default left-hand sidebar
+    page_title="Badminton Clubhouse Cloud",
+    page_icon="🏸",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # ==============================================================================
 # 💾 SECTION 1: SUPABASE LIVE CLOUD STORAGE MANAGEMENT FUNCTIONS
 # ==============================================================================
 
-# Pulling secret database credentials securely from Streamlit Cloud's settings
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-# Creating the active connection "bridge" to your Supabase database
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_local_data(room_name):
-    # PURPOSE: Fetches the data for a specific group (room_name) from the cloud.
-    # If the group doesn't exist yet, it creates a blank starting template for them.
     try:
-        # Search the 'clubhouse_rooms' table for the specific room code
         response = supabase_client.table("clubhouse_rooms").select("room_data").eq("room_id", room_name).execute()
-        
-        # If the room exists and returns data:
         if response.data:
-            data = response.data[0]["room_data"] # Extract the actual dictionary of stats/players
-            
-            # Track how many times this room has been logged into
+            data = response.data[0]["room_data"]
             if "total_visits" not in data: data["total_visits"] = 0        
             data["total_visits"] += 1           
             
-            updated = False # A flag to check if we need to save missing keys
-            
-            # This loop automatically updates older rooms with new features.
+            updated = False
             for key, default_val in [
                 ("players", []), ("teams", []), ("matches", []), 
                 ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
@@ -58,29 +44,23 @@ def get_local_data(room_name):
                     data[key] = default_val     
                     updated = True              
             
-            # If we had to add missing keys or update visits, save it back to the cloud
             if updated: save_local_data(room_name, data)            
-            return data # Return the final, clean data dictionary to the app
+            return data
         
-        # If the room DOES NOT exist, create a brand new dictionary structure for it
         default_data = {
             "players": [], "teams": [], "matches": [], "expenses": {},             
             "ind_leaderboard": {}, "team_leaderboard": {},     
             "created_at": str(datetime.date.today()), "total_visits": 1           
         }
-        # Insert this brand new room into the Supabase database
         supabase_client.table("clubhouse_rooms").insert({"room_id": room_name, "room_data": default_data}).execute()
         return default_data
         
     except Exception as e:
-        # If the internet drops or Supabase crashes, show an error and return empty data
         st.error(f"🚨 Supabase Fetch Failure: {e}")
         return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}}
 
 def save_local_data(room_name, data):
-    # PURPOSE: Pushes updated data (new scores, new players) back up to the cloud.
     try:
-        # Update the row where the room_id matches, replacing old data with the new data
         supabase_client.table("clubhouse_rooms").update({"room_data": data, "updated_at": "now()"}).eq("room_id", room_name).execute()
     except Exception as e:
         st.error(f"🚨 Supabase Update Sync Failure: {e}")
@@ -89,33 +69,26 @@ def save_local_data(room_name, data):
 # 🔑 SECTION 2: ACCESS CONTROL GATEWAY INTERFACE (STICKY URLs)
 # ==============================================================================
 
-# If the user hasn't logged in yet (room_id is missing from temporary memory)
 if "room_id" not in st.session_state:
-    # Check if the URL already has a saved room (e.g., website.com/?room=SMASH)
     if "room" in st.query_params:
-        st.session_state.room_id = st.query_params["room"] # Log them in automatically
+        st.session_state.room_id = st.query_params["room"]
     else:
-        # Otherwise, show the login screen
         st.title("🏸 Badminton Clubhouse Portal (Cloud Mode)") 
-        
-        # Text box for typing the access code (forces uppercase and removes extra spaces)
         room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
         
         if st.button("Enter Dashboard", type="primary"): 
             if room_input == "ADMIN-STATS":              
-                st.session_state.room_id = "ADMIN_PANEL" # Special admin mode
-                st.query_params["room"] = "ADMIN_PANEL"  # Save admin mode to URL
-                st.rerun() # Refresh app to apply login                               
-            elif room_input:                             
-                st.session_state.room_id = room_input    # Standard room login
-                st.query_params["room"] = room_input     # Save room to URL so it survives refreshes
+                st.session_state.room_id = "ADMIN_PANEL"
+                st.query_params["room"] = "ADMIN_PANEL"
                 st.rerun()                               
-        st.stop() # Stops the rest of the code from running until they log in                                       
+            elif room_input:                             
+                st.session_state.room_id = room_input
+                st.query_params["room"] = room_input
+                st.rerun()                               
+        st.stop()                                       
 
-# A shortcut variable holding the current active room name
 room_code = st.session_state.room_id
 
-# If we are logged in, but haven't downloaded the room's data yet, fetch it now.
 if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
     st.session_state.room_data = get_local_data(room_code) 
 
@@ -125,7 +98,6 @@ if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
 
 if st.session_state.room_id == "ADMIN_PANEL":
     st.title("🛡️ Central Cloud Analytics Controls")
-    
     if st.button("⬅️ Log Out of Admin Mode", type="primary"): 
         del st.session_state.room_id                        
         if "room" in st.query_params: del st.query_params["room"]
@@ -134,38 +106,30 @@ if st.session_state.room_id == "ADMIN_PANEL":
         
     st.markdown("---")                                      
     admin_summary_data = []                                 
-    
     try:
         response = supabase_client.table("clubhouse_rooms").select("room_id", "room_data").execute()
         if response.data:
             for row in response.data:                              
-                r_id = row["room_id"]             
                 room_payload = row["room_data"]   
                 admin_summary_data.append({
-                    "Room Access Code": r_id, 
+                    "Room Access Code": row["room_id"], 
                     "Creation Date": room_payload.get("created_at", "Legacy"),
-                    "Total Dashboard Openings": room_payload.get("total_visits", 1), 
-                    "Registered Players": len(room_payload.get("players", [])), 
-                    "Active Brackets": len(room_payload.get("matches", []))     
+                    "Visits": room_payload.get("total_visits", 1), 
+                    "Players": len(room_payload.get("players", [])), 
+                    "Matches": len(room_payload.get("matches", []))     
                 })
     except Exception as e:
         st.error(f"Admin Data Retrieval Failure: {e}")
         
     st.metric(label="Total Created Activity Rooms", value=len(admin_summary_data))
-        
     if admin_summary_data:                                  
-        df_admin = pd.DataFrame(admin_summary_data)         
-        st.dataframe(df_admin, use_container_width=True)    
-    else:
-        st.info("System storage arrays are completely blank right now.") 
-    
+        st.dataframe(pd.DataFrame(admin_summary_data), use_container_width=True)    
     st.stop() 
 
 # ==============================================================================
-# 🗂️ SECTION 4: MAIN DASHBOARD LAYOUT & CORE BRACKET CALCULATIONS
+# 🗂️ SECTION 4: MAIN DASHBOARD LAYOUT & HELPER FUNCTIONS
 # ==============================================================================
 
-# Splitting the top of the screen into two columns for Title and Logout button
 col1, col2 = st.columns([4, 1])                             
 with col1:
     st.title(f"🏸 Match & Tournament Hub")
@@ -181,10 +145,8 @@ with col2:
 st.markdown("---")
 
 def generate_and_lock_teams(match_format, active_players):
-    # PURPOSE: Shuffles the players who are present today and locks them into teams
     shuffled_pool = list(active_players)                               
     random.shuffle(shuffled_pool)                               
-    
     st.session_state.room_data["teams"] = []                    
     
     if match_format == "Singles":                               
@@ -193,17 +155,14 @@ def generate_and_lock_teams(match_format, active_players):
     else:                                                       
         while len(shuffled_pool) >= 2:                          
             st.session_state.room_data["teams"].append([shuffled_pool.pop(), shuffled_pool.pop()]) 
-            
         if len(shuffled_pool) == 1:
             odd_player = shuffled_pool.pop()
             for other_player in active_players:
                 if other_player != odd_player:
                     st.session_state.room_data["teams"].append([odd_player, other_player])
-            
     save_local_data(room_code, st.session_state.room_data)      
 
 def log_match_to_history(match):
-    # PURPOSE: Takes a completed match and permanently adds its stats to the leaderboards
     ind_lb = st.session_state.room_data["ind_leaderboard"]      
     team_lb = st.session_state.room_data["team_leaderboard"]    
     
@@ -219,7 +178,6 @@ def log_match_to_history(match):
         
     team_lb[t_a_name]["Points"] += match["score_a"]             
     team_lb[t_b_name]["Points"] += match["score_b"]             
-    
     for p in match["team_a"]: ind_lb[p]["Points"] += match["score_a"] 
     for p in match["team_b"]: ind_lb[p]["Points"] += match["score_b"] 
     
@@ -245,10 +203,16 @@ def log_match_to_history(match):
     save_local_data(room_code, st.session_state.room_data)      
 
 # ==============================================================================
-# 🏆 SECTION 5: NAVIGATION WORKSPACE TABS
+# 🏆 SECTION 5: NAVIGATION WORKSPACE TABS (5 DISTINCT TABS)
 # ==============================================================================
 
-tabs = ["👥 Roster & Expenses", "🎮 Matches & Play", "🏆 Leaderboards"] 
+tabs = [
+    "👥 Roster & Expenses", 
+    "🏆 Tournament Setup", 
+    "⚡ Custom Match", 
+    "🎮 Live Scoreboard", 
+    "📈 Leaderboards"
+] 
 current_url_tab = st.query_params.get("tab", tabs[0])
 if current_url_tab not in tabs: current_url_tab = tabs[0]
 default_tab_idx = tabs.index(current_url_tab)
@@ -256,8 +220,9 @@ default_tab_idx = tabs.index(current_url_tab)
 selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True, key="tab_navigation") 
 st.query_params["tab"] = selected_tab
 
-# --- RENDER TAB CONTENT ---
-
+# ==============================================================================
+# TAB 1: ROSTER & EXPENSES
+# ==============================================================================
 if selected_tab == "👥 Roster & Expenses":
     col_p, col_e = st.columns(2)                                
     
@@ -275,7 +240,6 @@ if selected_tab == "👥 Roster & Expenses":
         for idx, player in enumerate(st.session_state.room_data["players"]):
             col_name, col_del = st.columns([5, 1])               
             col_name.write(f"• {player}")                        
-            
             if col_del.button("🗑️", key=f"del_{player}_{idx}"):  
                 st.session_state.room_data["players"].remove(player) 
                 if player in st.session_state.room_data["expenses"]: del st.session_state.room_data["expenses"][player] 
@@ -298,151 +262,167 @@ if selected_tab == "👥 Roster & Expenses":
             st.toast("💰 Expense records cleared back to $0.0!") 
             st.rerun()
 
-elif selected_tab == "🎮 Matches & Play":
-    col_cfg, col_play = st.columns([1, 2])                      
+# ==============================================================================
+# TAB 2: TOURNAMENT SETUP
+# ==============================================================================
+elif selected_tab == "🏆 Tournament Setup":
+    st.subheader("⚙️ Team Generation & Fixtures")
     
-    with col_cfg:
-        st.subheader("⚙️ Team Generation & Fixtures")
-        
-        st.markdown("#### 🎯 Today's Lineup")
-        active_players = st.multiselect(
-            "Select players playing this session:",
-            options=st.session_state.room_data["players"],
-            default=st.session_state.room_data["players"],
-            help="Remove anyone who is absent so they aren't placed on a team."
-        )
+    st.markdown("#### 🎯 Today's Lineup")
+    active_players = st.multiselect(
+        "Select players playing this session:",
+        options=st.session_state.room_data["players"],
+        default=st.session_state.room_data["players"],
+        help="Remove anyone who is absent so they aren't placed on a team."
+    )
 
-        match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-        max_pts = st.number_input("Target Points (Qualifiers):", value=21, min_value=1) 
-        final_pts = st.number_input("Target Points (Grand Final):", value=21, min_value=1) 
-        
-        col_btn1, col_btn2 = st.columns(2)                       
-        with col_btn1:
-            if st.button("👥 Lock Teams", use_container_width=True, type="secondary"):
-                req = 2 if match_type == "Singles" else 4         
-                if len(active_players) < req: 
-                    st.error(f"Need at least {req} active players for this format!")    
-                else:
-                    generate_and_lock_teams(match_type, active_players)          
-                    st.rerun()
-                    
-        with col_btn2:
-            if st.button("🔓 Unlock & Re-roll", use_container_width=True): 
-                req = 2 if match_type == "Singles" else 4
-                if len(active_players) < req:
-                    st.error(f"Need at least {req} active players for this format!")
-                else:
-                    generate_and_lock_teams(match_type, active_players)
-                    st.rerun()
-
-        if st.session_state.room_data["teams"]:
-            st.info("🔒 Teams: " + " | ".join([" & ".join(t) for t in st.session_state.room_data["teams"]]))
-        else:
-            st.warning("⚠️ No fixed teams locked yet.")
-
-        st.divider()
-
-        num_teams = len(st.session_state.room_data["teams"])    
-        m_count = st.number_input("Number of Matches to Draw:", min_value=1, value=max(1, num_teams)) 
-
-        if st.button("🎲 Draw Random Matches", use_container_width=True):
-            if len(st.session_state.room_data["teams"]) < 2:
-                st.error("Need at least 2 locked teams!")
+    match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
+    max_pts = st.number_input("Target Points (Qualifiers):", value=21, min_value=1) 
+    final_pts = st.number_input("Target Points (Grand Final):", value=21, min_value=1) 
+    
+    col_btn1, col_btn2 = st.columns(2)                       
+    with col_btn1:
+        if st.button("👥 Lock Teams", use_container_width=True, type="secondary"):
+            req = 2 if match_type == "Singles" else 4         
+            if len(active_players) < req: 
+                st.error(f"Need at least {req} active players for this format!")    
             else:
-                valid_draw_pairs = []
-                for team_a, team_b in itertools.combinations(st.session_state.room_data["teams"], 2):
-                    if set(team_a).isdisjoint(set(team_b)):
-                        valid_draw_pairs.append((team_a, team_b))
+                generate_and_lock_teams(match_type, active_players)          
+                st.rerun()
                 
-                if not valid_draw_pairs:
-                    st.error("❌ Not enough non-overlapping team setups to generate a match.")
-                else:
-                    random.shuffle(valid_draw_pairs)                        
-                    fixtures = []                                    
-                    for i in range(int(m_count)):
-                        pair = valid_draw_pairs[i % len(valid_draw_pairs)]      
-                        fixtures.append({
-                            "id": str(uuid.uuid4()), "type": "Round Match", "is_final": False, "logged": False,                         
-                            "team_a": pair[0], "team_b": pair[1], "score_a": 0, "score_b": 0, "max_points": int(max_pts)               
-                        })
-                    st.session_state.room_data["matches"] = fixtures 
-                    save_local_data(room_code, st.session_state.room_data) 
-                    st.rerun()
-
-        if st.button("🏆 Start Tournament Pack", use_container_width=True, type="primary"):
-            if len(st.session_state.room_data["teams"]) < 2:
-                st.error("Need at least 2 locked teams!")
+    with col_btn2:
+        if st.button("🔓 Unlock & Re-roll", use_container_width=True): 
+            req = 2 if match_type == "Singles" else 4
+            if len(active_players) < req:
+                st.error(f"Need at least {req} active players for this format!")
             else:
-                valid_draw_pairs = []
-                for team_a, team_b in itertools.combinations(st.session_state.room_data["teams"], 2):
-                    if set(team_a).isdisjoint(set(team_b)):
-                        valid_draw_pairs.append((team_a, team_b))
-
-                if not valid_draw_pairs:
-                    st.error("❌ Not enough non-overlapping team setups to generate a match.")
-                else:
-                    random.shuffle(valid_draw_pairs)
-                    fixtures = []
-                    for i in range(int(m_count)):
-                        pair = valid_draw_pairs[i % len(valid_draw_pairs)]
-                        fixtures.append({
-                            "id": str(uuid.uuid4()), "type": f"Qualifier #{i+1}", "is_final": False, "logged": False,
-                            "team_a": pair[0], "team_b": pair[1], "score_a": 0, "score_b": 0, "max_points": int(max_pts)
-                        })
-                    fixtures.append({
-                        "id": str(uuid.uuid4()), "type": "GRAND FINAL", "is_final": True, "logged": False,
-                        "team_a": ["TBD"], "team_b": ["TBD"], "score_a": 0, "score_b": 0, "max_points": int(final_pts) 
-                    })
-                    st.session_state.room_data["matches"] = fixtures
-                    save_local_data(room_code, st.session_state.room_data)
-                    st.rerun()
-
-        # ==============================================================================
-        # ⚡ NEW FEATURE: QUICK CUSTOM MATCH GENERATOR
-        # ==============================================================================
-        st.divider()
-        st.markdown("#### ⚡ Quick Custom Match")
-        st.caption("Pick a pool of players to instantly generate a one-off match at the bottom of your scoreboard without affecting locked teams.")
-        
-        q_format = st.radio("Quick Format:", ["Singles", "Doubles"], key="q_format", horizontal=True)
-        
-        # User explicitly chooses the pool of players for this one random match
-        q_players = st.multiselect(
-            "Select Players for Quick Match:",
-            options=st.session_state.room_data["players"],
-            key="q_players",
-            help="Select at least 2 for Singles, or at least 4 for Doubles."
-        )
-        q_pts = st.number_input("Target Points (Quick Match):", value=21, min_value=1, key="q_pts")
-        
-        if st.button("⚡ Generate Quick Match", use_container_width=True):
-            req_players = 2 if q_format == "Singles" else 4
-            if len(q_players) < req_players:
-                st.error(f"Need at least {req_players} players selected to create a {q_format} match!")
-            else:
-                # Randomly pick the exact number of needed players from their selection
-                chosen = random.sample(q_players, req_players)
-                
-                # Assign them to Team A and Team B based on format
-                if q_format == "Singles":
-                    team_a, team_b = [chosen[0]], [chosen[1]]
-                else:
-                    team_a, team_b = [chosen[0], chosen[1]], [chosen[2], chosen[3]]
-                    
-                # Create the match structure and append it to the current fixture list
-                new_match = {
-                    "id": str(uuid.uuid4()), "type": "Quick Match", "is_final": False, "logged": False,
-                    "team_a": team_a, "team_b": team_b, "score_a": 0, "score_b": 0, "max_points": int(q_pts)
-                }
-                
-                st.session_state.room_data["matches"].append(new_match)
-                save_local_data(room_code, st.session_state.room_data)
-                st.toast("⚡ Quick match added to the bottom of the scoreboard!")
+                generate_and_lock_teams(match_type, active_players)
                 st.rerun()
 
-    with col_play:
-        st.subheader("Live Scoreboard")
-        if st.session_state.room_data["matches"] and st.button("🗑️ Clear Current Fixtures"):
+    if st.session_state.room_data["teams"]:
+        st.success("🔒 Teams Locked: " + " | ".join([" & ".join(t) for t in st.session_state.room_data["teams"]]))
+    else:
+        st.warning("⚠️ No fixed teams locked yet.")
+
+    st.divider()
+    num_teams = len(st.session_state.room_data["teams"])    
+    m_count = st.number_input("Number of Matches to Draw:", min_value=1, value=max(1, num_teams)) 
+
+    if st.button("🎲 Draw Random Matches", use_container_width=True):
+        if len(st.session_state.room_data["teams"]) < 2:
+            st.error("Need at least 2 locked teams!")
+        else:
+            valid_draw_pairs = []
+            for team_a, team_b in itertools.combinations(st.session_state.room_data["teams"], 2):
+                if set(team_a).isdisjoint(set(team_b)):
+                    valid_draw_pairs.append((team_a, team_b))
+            
+            if not valid_draw_pairs:
+                st.error("❌ Not enough non-overlapping team setups to generate a match.")
+            else:
+                random.shuffle(valid_draw_pairs)                        
+                fixtures = []                                    
+                for i in range(int(m_count)):
+                    pair = valid_draw_pairs[i % len(valid_draw_pairs)]      
+                    fixtures.append({
+                        "id": str(uuid.uuid4()), "type": "Round Match", "is_final": False, "logged": False,                         
+                        "team_a": pair[0], "team_b": pair[1], "score_a": 0, "score_b": 0, "max_points": int(max_pts)               
+                    })
+                st.session_state.room_data["matches"] = fixtures 
+                save_local_data(room_code, st.session_state.room_data)
+                
+                # Auto switch to Scoreboard tab
+                st.query_params["tab"] = "🎮 Live Scoreboard"
+                st.rerun()
+
+    if st.button("🏆 Start Tournament Pack", use_container_width=True, type="primary"):
+        if len(st.session_state.room_data["teams"]) < 2:
+            st.error("Need at least 2 locked teams!")
+        else:
+            valid_draw_pairs = []
+            for team_a, team_b in itertools.combinations(st.session_state.room_data["teams"], 2):
+                if set(team_a).isdisjoint(set(team_b)):
+                    valid_draw_pairs.append((team_a, team_b))
+
+            if not valid_draw_pairs:
+                st.error("❌ Not enough non-overlapping team setups to generate a match.")
+            else:
+                random.shuffle(valid_draw_pairs)
+                fixtures = []
+                for i in range(int(m_count)):
+                    pair = valid_draw_pairs[i % len(valid_draw_pairs)]
+                    fixtures.append({
+                        "id": str(uuid.uuid4()), "type": f"Qualifier #{i+1}", "is_final": False, "logged": False,
+                        "team_a": pair[0], "team_b": pair[1], "score_a": 0, "score_b": 0, "max_points": int(max_pts)
+                    })
+                fixtures.append({
+                    "id": str(uuid.uuid4()), "type": "GRAND FINAL", "is_final": True, "logged": False,
+                    "team_a": ["TBD"], "team_b": ["TBD"], "score_a": 0, "score_b": 0, "max_points": int(final_pts) 
+                })
+                st.session_state.room_data["matches"] = fixtures
+                save_local_data(room_code, st.session_state.room_data)
+                
+                # Auto switch to Scoreboard tab
+                st.query_params["tab"] = "🎮 Live Scoreboard"
+                st.rerun()
+
+# ==============================================================================
+# TAB 3: QUICK CUSTOM MATCH
+# ==============================================================================
+elif selected_tab == "⚡ Custom Match":
+    st.subheader("⚡ Quick Custom Match Generator")
+    st.write("Manually select players for a one-off custom match. This will instantly add the match to the Live Scoreboard without affecting your locked tournament teams.")
+    
+    q_format = st.radio("Match Format:", ["Singles", "Doubles"], key="q_format", horizontal=True)
+    
+    col_qa, col_qb = st.columns(2)
+    with col_qa:
+        st.markdown("### Team A")
+        if q_format == "Singles":
+            q_team_a = st.multiselect("Select 1 Player:", options=st.session_state.room_data["players"], max_selections=1, key="q_team_a")
+        else:
+            q_team_a = st.multiselect("Select 2 Players:", options=st.session_state.room_data["players"], max_selections=2, key="q_team_a")
+            
+    with col_qb:
+        st.markdown("### Team B")
+        if q_format == "Singles":
+            q_team_b = st.multiselect("Select 1 Player:", options=st.session_state.room_data["players"], max_selections=1, key="q_team_b")
+        else:
+            q_team_b = st.multiselect("Select 2 Players:", options=st.session_state.room_data["players"], max_selections=2, key="q_team_b")
+            
+    q_pts = st.number_input("Target Points (Race to):", value=21, min_value=1, key="q_pts")
+    
+    if st.button("⚔️ Generate Custom Match & Go to Scoreboard", type="primary", use_container_width=True):
+        req_players = 1 if q_format == "Singles" else 2
+        
+        if len(q_team_a) != req_players or len(q_team_b) != req_players:
+            st.error(f"Please select exactly {req_players} player(s) for each team!")
+        else:
+            overlap = set(q_team_a).intersection(set(q_team_b))
+            if overlap:
+                st.error(f"❌ Players cannot play against themselves! Conflict: {', '.join(overlap)}")
+            else:
+                new_match = {
+                    "id": str(uuid.uuid4()), "type": "Custom Match", "is_final": False, "logged": False,
+                    "team_a": q_team_a, "team_b": q_team_b, "score_a": 0, "score_b": 0, "max_points": int(q_pts)
+                }
+                st.session_state.room_data["matches"].append(new_match)
+                save_local_data(room_code, st.session_state.room_data)
+                
+                # Auto switch to Scoreboard tab
+                st.query_params["tab"] = "🎮 Live Scoreboard"
+                st.rerun()
+
+# ==============================================================================
+# TAB 4: LIVE SCOREBOARD
+# ==============================================================================
+elif selected_tab == "🎮 Live Scoreboard":
+    st.subheader("🔴 Live Scoreboard")
+    
+    if not st.session_state.room_data["matches"]:
+        st.info("No active matches. Go to **Tournament Setup** or **Custom Match** to generate fixtures!")
+    else:
+        if st.button("🗑️ Clear All Current Fixtures", type="secondary"):
             st.session_state.room_data["matches"] = []          
             save_local_data(room_code, st.session_state.room_data) 
             st.rerun()
@@ -497,34 +477,25 @@ elif selected_tab == "🎮 Matches & Play":
             
             with col_t2: st.write(f"**{' & '.join(match['team_b'])}**")
             
-            # ==============================================================================
-            # 🏆 NEW FEATURE: EXPLICIT WINNER ANNOUNCEMENT
-            # ==============================================================================
-            # If the match has reached the max score (game over)
             if match["score_a"] >= match["max_points"] or match["score_b"] >= match["max_points"]:
+                winner_name = ' & '.join(match['team_a']) if match["score_a"] > match["score_b"] else ' & '.join(match['team_b'])
                 
-                # Determine exactly who the winning team/player is
-                if match["score_a"] > match["score_b"]:
-                    winner_name = ' & '.join(match['team_a'])
-                else:
-                    winner_name = ' & '.join(match['team_b'])
-                
-                # Log to historical database if it hasn't been logged yet
                 if not match.get("logged", False):               
                     match["logged"] = True                       
                     log_match_to_history(match)                  
                     st.rerun()                                   
                 
-                # Show explicit celebration/success messages naming the winner
                 if match.get("is_final", False):                 
                     st.balloons()                                
                     st.success(f"👑 {winner_name} WINS THE TOURNAMENT CHAMPIONSHIP! 👑") 
                 else:
                     st.success(f"✅ **{winner_name}** won the match! (Stats saved to Leaderboard)")
-            
             st.divider()                                         
 
-elif selected_tab == "🏆 Leaderboards":
+# ==============================================================================
+# TAB 5: LEADERBOARDS
+# ==============================================================================
+elif selected_tab == "📈 Leaderboards":
     st.subheader("📈 All-Time Standings")
     
     ind_stats = st.session_state.room_data["ind_leaderboard"]    
@@ -533,7 +504,6 @@ elif selected_tab == "🏆 Leaderboards":
     col_l1, col_l2 = st.columns(2)                                
     with col_l1:
         st.markdown("### 🥇 Individual Leaderboard")
-        
         all_tracked_players = set(st.session_state.room_data.get("players", [])) | set(ind_stats.keys())
         
         display_profiles = {}
