@@ -166,15 +166,21 @@ def log_match_to_history(match):
     ind_lb = st.session_state.room_data["ind_leaderboard"]      
     team_lb = st.session_state.room_data["team_leaderboard"]    
     
+    # Sorting team names alphabetically ensures "Roop & Sukh" maps identically to "Sukh & Roop"
     t_a_name = " & ".join(sorted(match["team_a"]))               
     t_b_name = " & ".join(sorted(match["team_b"]))               
     
-    if t_a_name not in team_lb: team_lb[t_a_name] = {"Wins": 0, "Points": 0}
-    if t_b_name not in team_lb: team_lb[t_b_name] = {"Wins": 0, "Points": 0}
+    if t_a_name not in team_lb: team_lb[t_a_name] = {"Wins": 0, "Losses": 0, "Points": 0}
+    if t_b_name not in team_lb: team_lb[t_b_name] = {"Wins": 0, "Losses": 0, "Points": 0}
+    
+    # Backward compatibility: Add 'Losses' metric to older groups
+    if "Losses" not in team_lb[t_a_name]: team_lb[t_a_name]["Losses"] = 0
+    if "Losses" not in team_lb[t_b_name]: team_lb[t_b_name]["Losses"] = 0
         
     for p in match["team_a"] + match["team_b"]:
         if p not in ind_lb:
-            ind_lb[p] = {"Wins": 0, "Points": 0, "Singles Played": 0, "Doubles Played": 0, "Grand Finals Won": 0}
+            ind_lb[p] = {"Wins": 0, "Losses": 0, "Points": 0, "Singles Played": 0, "Doubles Played": 0, "Grand Finals Won": 0}
+        if "Losses" not in ind_lb[p]: ind_lb[p]["Losses"] = 0
         
     team_lb[t_a_name]["Points"] += match["score_a"]             
     team_lb[t_b_name]["Points"] += match["score_b"]             
@@ -190,15 +196,21 @@ def log_match_to_history(match):
         elif is_doubles: ind_lb[p]["Doubles Played"] += 1
 
     if match["score_a"] > match["score_b"]:                     
-        team_lb[t_a_name]["Wins"] += 1                          
+        team_lb[t_a_name]["Wins"] += 1
+        team_lb[t_b_name]["Losses"] += 1
         for p in match["team_a"]: 
             ind_lb[p]["Wins"] += 1        
             if is_gf: ind_lb[p]["Grand Finals Won"] += 1
+        for p in match["team_b"]:
+            ind_lb[p]["Losses"] += 1
     else:                                                       
         team_lb[t_b_name]["Wins"] += 1                          
+        team_lb[t_a_name]["Losses"] += 1
         for p in match["team_b"]: 
             ind_lb[p]["Wins"] += 1        
             if is_gf: ind_lb[p]["Grand Finals Won"] += 1
+        for p in match["team_a"]:
+            ind_lb[p]["Losses"] += 1
         
     save_local_data(room_code, st.session_state.room_data)      
 
@@ -217,6 +229,7 @@ current_url_tab = st.query_params.get("tab", tabs[0])
 if current_url_tab not in tabs: current_url_tab = tabs[0]
 default_tab_idx = tabs.index(current_url_tab)
 
+# Storing tab navigation explicitly inside session state fixes the Auto-Tab Switch issue!
 selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True, key="tab_navigation") 
 st.query_params["tab"] = selected_tab
 
@@ -332,6 +345,7 @@ elif selected_tab == "🏆 Tournament Setup":
                 save_local_data(room_code, st.session_state.room_data)
                 
                 # Auto switch to Scoreboard tab
+                st.session_state.tab_navigation = "🎮 Live Scoreboard"
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -363,6 +377,7 @@ elif selected_tab == "🏆 Tournament Setup":
                 save_local_data(room_code, st.session_state.room_data)
                 
                 # Auto switch to Scoreboard tab
+                st.session_state.tab_navigation = "🎮 Live Scoreboard"
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -371,47 +386,47 @@ elif selected_tab == "🏆 Tournament Setup":
 # ==============================================================================
 elif selected_tab == "⚡ Custom Match":
     st.subheader("⚡ Quick Custom Match Generator")
-    st.write("Manually select players for a one-off custom match. This will instantly add the match to the Live Scoreboard without affecting your locked tournament teams.")
+    st.write("Manually select players for a one-off custom match. This instantly adds the match to the Live Scoreboard.")
     
     q_format = st.radio("Match Format:", ["Singles", "Doubles"], key="q_format", horizontal=True)
+    req_players = 1 if q_format == "Singles" else 2
+    
+    all_players = st.session_state.room_data["players"]
+    
+    # Grab whatever is currently selected so we can filter it out of the opposite dropdown
+    current_team_a = st.session_state.get("q_team_a", [])
+    current_team_b = st.session_state.get("q_team_b", [])
+    
+    # Smart filtering: If a player is in Team A, they disappear from Team B's options (and vice-versa!)
+    options_for_a = [p for p in all_players if p not in current_team_b]
+    options_for_b = [p for p in all_players if p not in current_team_a]
     
     col_qa, col_qb = st.columns(2)
     with col_qa:
         st.markdown("### Team A")
-        if q_format == "Singles":
-            q_team_a = st.multiselect("Select 1 Player:", options=st.session_state.room_data["players"], max_selections=1, key="q_team_a")
-        else:
-            q_team_a = st.multiselect("Select 2 Players:", options=st.session_state.room_data["players"], max_selections=2, key="q_team_a")
+        q_team_a = st.multiselect(f"Select {req_players} Player(s):", options=options_for_a, max_selections=req_players, key="q_team_a")
             
     with col_qb:
         st.markdown("### Team B")
-        if q_format == "Singles":
-            q_team_b = st.multiselect("Select 1 Player:", options=st.session_state.room_data["players"], max_selections=1, key="q_team_b")
-        else:
-            q_team_b = st.multiselect("Select 2 Players:", options=st.session_state.room_data["players"], max_selections=2, key="q_team_b")
+        q_team_b = st.multiselect(f"Select {req_players} Player(s):", options=options_for_b, max_selections=req_players, key="q_team_b")
             
     q_pts = st.number_input("Target Points (Race to):", value=21, min_value=1, key="q_pts")
     
     if st.button("⚔️ Generate Custom Match & Go to Scoreboard", type="primary", use_container_width=True):
-        req_players = 1 if q_format == "Singles" else 2
-        
         if len(q_team_a) != req_players or len(q_team_b) != req_players:
-            st.error(f"Please select exactly {req_players} player(s) for each team!")
+            st.error(f"Please select exactly {req_players} player(s) for each team before generating!")
         else:
-            overlap = set(q_team_a).intersection(set(q_team_b))
-            if overlap:
-                st.error(f"❌ Players cannot play against themselves! Conflict: {', '.join(overlap)}")
-            else:
-                new_match = {
-                    "id": str(uuid.uuid4()), "type": "Custom Match", "is_final": False, "logged": False,
-                    "team_a": q_team_a, "team_b": q_team_b, "score_a": 0, "score_b": 0, "max_points": int(q_pts)
-                }
-                st.session_state.room_data["matches"].append(new_match)
-                save_local_data(room_code, st.session_state.room_data)
-                
-                # Auto switch to Scoreboard tab
-                st.query_params["tab"] = "🎮 Live Scoreboard"
-                st.rerun()
+            new_match = {
+                "id": str(uuid.uuid4()), "type": "Custom Match", "is_final": False, "logged": False,
+                "team_a": q_team_a, "team_b": q_team_b, "score_a": 0, "score_b": 0, "max_points": int(q_pts)
+            }
+            st.session_state.room_data["matches"].append(new_match)
+            save_local_data(room_code, st.session_state.room_data)
+            
+            # Auto switch to Scoreboard tab dynamically
+            st.session_state.tab_navigation = "🎮 Live Scoreboard"
+            st.query_params["tab"] = "🎮 Live Scoreboard"
+            st.rerun()
 
 # ==============================================================================
 # TAB 4: LIVE SCOREBOARD
@@ -511,21 +526,30 @@ elif selected_tab == "📈 Leaderboards":
             saved_profile = ind_stats.get(player, {})
             display_profiles[player] = {
                 "Wins": saved_profile.get("Wins", 0), 
+                "Losses": saved_profile.get("Losses", 0), 
                 "Singles Played": saved_profile.get("Singles Played", 0),
                 "Doubles Played": saved_profile.get("Doubles Played", 0), 
                 "Grand Finals Won": saved_profile.get("Grand Finals Won", 0),
-                "Total points scored": saved_profile.get("Points", 0)
+                "Total Points": saved_profile.get("Points", 0)
             }
             
         if display_profiles:     
-            df_ind = pd.DataFrame.from_dict(display_profiles, orient='index').sort_values(by=["Grand Finals Won", "Wins", "Total points scored"], ascending=[False, False, False])
+            df_ind = pd.DataFrame.from_dict(display_profiles, orient='index').sort_values(by=["Wins", "Grand Finals Won", "Total Points"], ascending=[False, False, False])
             st.dataframe(df_ind, use_container_width=True)       
         else: st.info("No stats available.")
             
     with col_l2:
         st.markdown("### 🏅 Team Leaderboard")
         if team_stats:
+            # Clean up missing "Losses" data for older teams that haven't updated yet
+            for t_name in team_stats:
+                if "Losses" not in team_stats[t_name]:
+                    team_stats[t_name]["Losses"] = 0
+                    
             df_team = pd.DataFrame.from_dict(team_stats, orient='index').sort_values(by=["Wins", "Points"], ascending=[False, False])
+            # Reorder columns slightly for better reading
+            if not df_team.empty:
+                df_team = df_team[["Wins", "Losses", "Points"]]
             st.dataframe(df_team, use_container_width=True)
         else: st.info("No stats available.")
 
