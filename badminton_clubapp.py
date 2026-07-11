@@ -8,6 +8,7 @@ import uuid
 import pandas as pd
 import itertools
 import datetime
+import copy
 from supabase import create_client, Client
 
 # --- GLOBAL STAGE INITIALIZATION ---
@@ -38,6 +39,7 @@ def get_local_data(room_name):
             for key, default_val in [
                 ("players", []), ("teams", []), ("matches", []), 
                 ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
+                ("match_history", []), # Added history list for Undo feature
                 ("created_at", str(datetime.date.today()))
             ]:
                 if key not in data:             
@@ -49,7 +51,7 @@ def get_local_data(room_name):
         
         default_data = {
             "players": [], "teams": [], "matches": [], "expenses": {},             
-            "ind_leaderboard": {}, "team_leaderboard": {},     
+            "ind_leaderboard": {}, "team_leaderboard": {}, "match_history": [],    
             "created_at": str(datetime.date.today()), "total_visits": 1           
         }
         supabase_client.table("clubhouse_rooms").insert({"room_id": room_name, "room_data": default_data}).execute()
@@ -57,7 +59,7 @@ def get_local_data(room_name):
         
     except Exception as e:
         st.error(f"🚨 Supabase Fetch Failure: {e}")
-        return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}}
+        return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}, "match_history": []}
 
 def save_local_data(room_name, data):
     try:
@@ -211,8 +213,89 @@ def log_match_to_history(match):
             if is_gf: ind_lb[p]["Grand Finals Won"] += 1
         for p in match["team_a"]:
             ind_lb[p]["Losses"] += 1
+            
+    # -- Save Match to Undo History Log --
+    if "match_history" not in st.session_state.room_data:
+        st.session_state.room_data["match_history"] = []
+    
+    logged_record = copy.deepcopy(match)
+    logged_record["logged_at"] = str(datetime.datetime.now())
+    
+    st.session_state.room_data["match_history"].append(logged_record)
+    
+    # Cap history at the last 20 matches to save memory
+    if len(st.session_state.room_data["match_history"]) > 20:
+        st.session_state.room_data["match_history"].pop(0)
         
     save_local_data(room_code, st.session_state.room_data)      
+
+def undo_match_stats(match):
+    """Reverses the leaderboards and resets the match if it's still active."""
+    ind_lb = st.session_state.room_data["ind_leaderboard"]
+    team_lb = st.session_state.room_data["team_leaderboard"]
+    
+    t_a_name = " & ".join(sorted(match["team_a"]))               
+    t_b_name = " & ".join(sorted(match["team_b"]))
+    
+    # 1. Reverse Points
+    if t_a_name in team_lb: team_lb[t_a_name]["Points"] -= match["score_a"]
+    if t_b_name in team_lb: team_lb[t_b_name]["Points"] -= match["score_b"]
+    
+    for p in match["team_a"]: 
+        if p in ind_lb: ind_lb[p]["Points"] -= match["score_a"]
+    for p in match["team_b"]: 
+        if p in ind_lb: ind_lb[p]["Points"] -= match["score_b"]
+        
+    # 2. Reverse Games Played Count
+    is_singles = len(match["team_a"]) == 1
+    is_doubles = len(match["team_a"]) == 2
+    is_gf = match.get("is_final", False) or "GRAND FINAL" in str(match.get("type", "")).upper()
+    
+    for p in match["team_a"] + match["team_b"]:
+        if p in ind_lb:
+            if is_singles: ind_lb[p]["Singles Played"] = max(0, ind_lb[p]["Singles Played"] - 1)
+            elif is_doubles: ind_lb[p]["Doubles Played"] = max(0, ind_lb[p]["Doubles Played"] - 1)
+            
+    # 3. Reverse Wins / Losses
+    if match["score_a"] > match["score_b"]:                     
+        if t_a_name in team_lb: team_lb[t_a_name]["Wins"] = max(0, team_lb[t_a_name]["Wins"] - 1)
+        if t_b_name in team_lb: team_lb[t_b_name]["Losses"] = max(0, team_lb[t_b_name]["Losses"] - 1)
+        for p in match["team_a"]: 
+            if p in ind_lb: 
+                ind_lb[p]["Wins"] = max(0, ind_lb[p]["Wins"] - 1)
+                if is_gf: ind_lb[p]["Grand Finals Won"] = max(0, ind_lb[p]["Grand Finals Won"] - 1)
+        for p in match["team_b"]:
+            if p in ind_lb: ind_lb[p]["Losses"] = max(0, ind_lb[p]["Losses"] - 1)
+    else:
+        if t_b_name in team_lb: team_lb[t_b_name]["Wins"] = max(0, team_lb[t_b_name]["Wins"] - 1)
+        if t_a_name in team_lb: team_lb[t_a_name]["Losses"] = max(0, team_lb[t_a_name]["Losses"] - 1)
+        for p in match["team_b"]: 
+            if p in ind_lb:
+                ind_lb[p]["Wins"] = max(0, ind_lb[p]["Wins"] - 1)       
+                if is_gf: ind_lb[p]["Grand Finals Won"] = max(0, ind_lb[p]["Grand Finals Won"] - 1)
+        for p in match["team_a"]:
+            if p in ind_lb: ind_lb[p]["Losses"] = max(0, ind_lb[p]["Losses"] - 1)
+            
+    # 4. Find if it's currently on the scoreboard, if so, unlock it and drop the score by 1
+    for current_m in st.session_state.room_data.get("matches", []):
+        if current_m["id"] == match["id"]:
+            current_m["logged"] = False
+            # Bump the winning score down by 1 so the match isn't immediately finished again
+            if current_m["score_a"] >= current_m["max_points"] and current_m["score_a"] > current_m["score_b"]:
+                current_m["score_a"] -= 1
+            elif current_m["score_b"] >= current_m["max_points"] and current_m["score_b"] > current_m["score_a"]:
+                current_m["score_b"] -= 1
+            # Failsafe bounds
+            if current_m["score_a"] >= current_m["max_points"]: current_m["score_a"] = current_m["max_points"] - 1
+            if current_m["score_b"] >= current_m["max_points"]: current_m["score_b"] = current_m["max_points"] - 1
+            
+    # 5. Remove from Match History Array
+    if "match_history" in st.session_state.room_data:
+        st.session_state.room_data["match_history"] = [
+            m for m in st.session_state.room_data["match_history"] if m["id"] != match["id"]
+        ]
+        
+    save_local_data(room_code, st.session_state.room_data)
 
 # ==============================================================================
 # 🏆 SECTION 5: NAVIGATION WORKSPACE TABS (5 DISTINCT TABS)
@@ -229,8 +312,6 @@ current_url_tab = st.query_params.get("tab", tabs[0])
 if current_url_tab not in tabs: current_url_tab = tabs[0]
 default_tab_idx = tabs.index(current_url_tab)
 
-# FIX: Removed `key="tab_navigation"` to prevent StreamlitAPIException crashes
-# Now it relies entirely on the URL state to decide which tab to render.
 selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True) 
 st.query_params["tab"] = selected_tab
 
@@ -345,7 +426,6 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures 
                 save_local_data(room_code, st.session_state.room_data)
                 
-                # Update URL and Rerun safely to jump to scoreboard
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -376,7 +456,6 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures
                 save_local_data(room_code, st.session_state.room_data)
                 
-                # Update URL and Rerun safely to jump to scoreboard
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -387,17 +466,14 @@ elif selected_tab == "⚡ Custom Match":
     st.subheader("⚡ Quick Custom Match Generator")
     st.write("Manually select players for a one-off custom match. This instantly adds the match to the Live Scoreboard.")
     
-    # FIX: Added `index=1` so Doubles is selected by default instead of Singles!
     q_format = st.radio("Match Format:", ["Singles", "Doubles"], index=1, key="q_format", horizontal=True)
     req_players = 1 if q_format == "Singles" else 2
     
     all_players = st.session_state.room_data["players"]
     
-    # Grab whatever is currently selected so we can filter it out of the opposite dropdown
     current_team_a = st.session_state.get("q_team_a", [])
     current_team_b = st.session_state.get("q_team_b", [])
     
-    # Smart filtering: If a player is in Team A, they disappear from Team B's options
     options_for_a = [p for p in all_players if p not in current_team_b]
     options_for_b = [p for p in all_players if p not in current_team_a]
     
@@ -423,7 +499,6 @@ elif selected_tab == "⚡ Custom Match":
             st.session_state.room_data["matches"].append(new_match)
             save_local_data(room_code, st.session_state.room_data)
             
-            # Update URL and Rerun safely to jump to scoreboard
             st.query_params["tab"] = "🎮 Live Scoreboard"
             st.rerun()
 
@@ -504,7 +579,33 @@ elif selected_tab == "🎮 Live Scoreboard":
                     st.success(f"👑 {winner_name} WINS THE TOURNAMENT CHAMPIONSHIP! 👑") 
                 else:
                     st.success(f"✅ **{winner_name}** won the match! (Stats saved to Leaderboard)")
-            st.divider()                                         
+            st.divider()
+
+    # --- MATCH HISTORY AND UNDO SECTION ---
+    st.markdown("---")
+    st.subheader("⏪ Recent Match History")
+    
+    match_history = st.session_state.room_data.get("match_history", [])
+    
+    if not match_history:
+        st.info("No matches have been finished recently. Once a match is completed, it will appear here so you can undo it if needed.")
+    else:
+        # Display the last 10 matches (reversed, so the most recent is at the top)
+        for m in reversed(match_history[-10:]):
+            t_a = " & ".join(m["team_a"])
+            t_b = " & ".join(m["team_b"])
+            
+            # Figure out who won this historical match
+            winner = t_a if m["score_a"] > m["score_b"] else t_b
+            
+            col_info, col_btn = st.columns([5, 1])
+            with col_info:
+                st.write(f"**{m['type']}**: {t_a} ({m['score_a']}) vs {t_b} ({m['score_b']}) — *Won by {winner}*")
+            with col_btn:
+                if st.button("↩️ Undo", key=f"undo_{m['id']}"):
+                    undo_match_stats(m)
+                    st.toast(f"Match between {t_a} and {t_b} successfully undone!")
+                    st.rerun()
 
 # ==============================================================================
 # TAB 5: LEADERBOARDS
@@ -540,13 +641,11 @@ elif selected_tab == "📈 Leaderboards":
     with col_l2:
         st.markdown("### 🏅 Team Leaderboard")
         if team_stats:
-            # Clean up missing "Losses" data for older teams that haven't updated yet
             for t_name in team_stats:
                 if "Losses" not in team_stats[t_name]:
                     team_stats[t_name]["Losses"] = 0
                     
             df_team = pd.DataFrame.from_dict(team_stats, orient='index').sort_values(by=["Wins", "Points"], ascending=[False, False])
-            # Reorder columns slightly for better reading
             if not df_team.empty:
                 df_team = df_team[["Wins", "Losses", "Points"]]
             st.dataframe(df_team, use_container_width=True)
@@ -559,6 +658,7 @@ elif selected_tab == "📈 Leaderboards":
         if st.button("⚠️ Hard Reset Leaderboards", use_container_width=True, type="secondary"):
             st.session_state.room_data["ind_leaderboard"] = {}   
             st.session_state.room_data["team_leaderboard"] = {}  
+            st.session_state.room_data["match_history"] = [] # Clear history on hard reset too
             save_local_data(room_code, st.session_state.room_data) 
             st.rerun()
     with col_r2:
