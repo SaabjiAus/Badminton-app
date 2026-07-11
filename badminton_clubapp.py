@@ -9,6 +9,7 @@ import pandas as pd
 import itertools
 import datetime
 import copy
+import json
 from supabase import create_client, Client
 
 # --- GLOBAL STAGE INITIALIZATION ---
@@ -39,7 +40,7 @@ def get_local_data(room_name):
             for key, default_val in [
                 ("players", []), ("teams", []), ("matches", []), 
                 ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
-                ("match_history", []), # Added history list for Undo feature
+                ("match_history", []), 
                 ("created_at", str(datetime.date.today()))
             ]:
                 if key not in data:             
@@ -95,27 +96,30 @@ if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
     st.session_state.room_data = get_local_data(room_code) 
 
 # ==============================================================================
-# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (ADMIN PANEL)
+# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (ADMIN PANEL) - WITH DATABASE EDITOR
 # ==============================================================================
 
 if st.session_state.room_id == "ADMIN_PANEL":
-    st.title("🛡️ Central Cloud Analytics Controls")
-    if st.button("⬅️ Log Out of Admin Mode", type="primary"): 
+    st.title("🛡️ Central Cloud Analytics & Database Control")
+    if st.button("⬅️ Log Out of Admin Mode"): 
         del st.session_state.room_id                        
         if "room" in st.query_params: del st.query_params["room"]
         if "tab" in st.query_params: del st.query_params["tab"]
         st.rerun()                                          
         
     st.markdown("---")                                      
-    admin_summary_data = []                                 
+    admin_summary_data = []
+    room_list = []
     try:
         response = supabase_client.table("clubhouse_rooms").select("room_id", "room_data").execute()
         if response.data:
             for row in response.data:                              
-                room_payload = row["room_data"]   
+                room_payload = row["room_data"]
+                room_id_name = row["room_id"]
+                room_list.append(room_id_name)
                 admin_summary_data.append({
-                    "Room Access Code": row["room_id"], 
-                    "Creation Date": room_payload.get("created_at", "Legacy"),
+                    "Room Code": room_id_name, 
+                    "Created": room_payload.get("created_at", "Legacy"),
                     "Visits": room_payload.get("total_visits", 1), 
                     "Players": len(room_payload.get("players", [])), 
                     "Matches": len(room_payload.get("matches", []))     
@@ -125,7 +129,38 @@ if st.session_state.room_id == "ADMIN_PANEL":
         
     st.metric(label="Total Created Activity Rooms", value=len(admin_summary_data))
     if admin_summary_data:                                  
-        st.dataframe(pd.DataFrame(admin_summary_data), use_container_width=True)    
+        st.dataframe(pd.DataFrame(admin_summary_data), use_container_width=True)
+        
+    st.markdown("### 🛠️ Database Management (Edit / Delete Rooms)")
+    
+    if room_list:
+        selected_del_room = st.selectbox("Select a Room to Manage:", room_list)
+        
+        if selected_del_room:
+            room_to_edit_resp = supabase_client.table("clubhouse_rooms").select("room_data").eq("room_id", selected_del_room).execute()
+            if room_to_edit_resp.data:
+                raw_json = room_to_edit_resp.data[0]["room_data"]
+                
+                edited_json_str = st.text_area(f"Edit Raw JSON Data for '{selected_del_room}':", value=json.dumps(raw_json, indent=4), height=400)
+                
+                col_save, col_del = st.columns(2)
+                with col_save:
+                    if st.button("💾 Save Database Changes", type="primary", use_container_width=True):
+                        try:
+                            updated_dict = json.loads(edited_json_str)
+                            supabase_client.table("clubhouse_rooms").update({"room_data": updated_dict}).eq("room_id", selected_del_room).execute()
+                            st.success(f"Successfully updated database for {selected_del_room}!")
+                        except Exception as e:
+                            st.error(f"Invalid JSON Format: {e}")
+                            
+                with col_del:
+                    if st.button("🚨 Delete Room Entirely", use_container_width=True):
+                        try:
+                            supabase_client.table("clubhouse_rooms").delete().eq("room_id", selected_del_room).execute()
+                            st.success(f"Room {selected_del_room} was deleted permanently!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to delete: {e}")
     st.stop() 
 
 # ==============================================================================
@@ -168,14 +203,12 @@ def log_match_to_history(match):
     ind_lb = st.session_state.room_data["ind_leaderboard"]      
     team_lb = st.session_state.room_data["team_leaderboard"]    
     
-    # Sorting team names alphabetically ensures "Roop & Sukh" maps identically to "Sukh & Roop"
     t_a_name = " & ".join(sorted(match["team_a"]))               
     t_b_name = " & ".join(sorted(match["team_b"]))               
     
     if t_a_name not in team_lb: team_lb[t_a_name] = {"Wins": 0, "Losses": 0, "Points": 0}
     if t_b_name not in team_lb: team_lb[t_b_name] = {"Wins": 0, "Losses": 0, "Points": 0}
     
-    # Backward compatibility: Add 'Losses' metric to older groups
     if "Losses" not in team_lb[t_a_name]: team_lb[t_a_name]["Losses"] = 0
     if "Losses" not in team_lb[t_b_name]: team_lb[t_b_name]["Losses"] = 0
         
@@ -214,7 +247,6 @@ def log_match_to_history(match):
         for p in match["team_a"]:
             ind_lb[p]["Losses"] += 1
             
-    # -- Save Match to Undo History Log --
     if "match_history" not in st.session_state.room_data:
         st.session_state.room_data["match_history"] = []
     
@@ -223,21 +255,18 @@ def log_match_to_history(match):
     
     st.session_state.room_data["match_history"].append(logged_record)
     
-    # Cap history at the last 20 matches to save memory
     if len(st.session_state.room_data["match_history"]) > 20:
         st.session_state.room_data["match_history"].pop(0)
         
     save_local_data(room_code, st.session_state.room_data)      
 
 def undo_match_stats(match):
-    """Reverses the leaderboards and resets the match if it's still active."""
     ind_lb = st.session_state.room_data["ind_leaderboard"]
     team_lb = st.session_state.room_data["team_leaderboard"]
     
     t_a_name = " & ".join(sorted(match["team_a"]))               
     t_b_name = " & ".join(sorted(match["team_b"]))
     
-    # 1. Reverse Points
     if t_a_name in team_lb: team_lb[t_a_name]["Points"] -= match["score_a"]
     if t_b_name in team_lb: team_lb[t_b_name]["Points"] -= match["score_b"]
     
@@ -246,7 +275,6 @@ def undo_match_stats(match):
     for p in match["team_b"]: 
         if p in ind_lb: ind_lb[p]["Points"] -= match["score_b"]
         
-    # 2. Reverse Games Played Count
     is_singles = len(match["team_a"]) == 1
     is_doubles = len(match["team_a"]) == 2
     is_gf = match.get("is_final", False) or "GRAND FINAL" in str(match.get("type", "")).upper()
@@ -256,7 +284,6 @@ def undo_match_stats(match):
             if is_singles: ind_lb[p]["Singles Played"] = max(0, ind_lb[p]["Singles Played"] - 1)
             elif is_doubles: ind_lb[p]["Doubles Played"] = max(0, ind_lb[p]["Doubles Played"] - 1)
             
-    # 3. Reverse Wins / Losses
     if match["score_a"] > match["score_b"]:                     
         if t_a_name in team_lb: team_lb[t_a_name]["Wins"] = max(0, team_lb[t_a_name]["Wins"] - 1)
         if t_b_name in team_lb: team_lb[t_b_name]["Losses"] = max(0, team_lb[t_b_name]["Losses"] - 1)
@@ -276,20 +303,16 @@ def undo_match_stats(match):
         for p in match["team_a"]:
             if p in ind_lb: ind_lb[p]["Losses"] = max(0, ind_lb[p]["Losses"] - 1)
             
-    # 4. Find if it's currently on the scoreboard, if so, unlock it and drop the score by 1
     for current_m in st.session_state.room_data.get("matches", []):
         if current_m["id"] == match["id"]:
             current_m["logged"] = False
-            # Bump the winning score down by 1 so the match isn't immediately finished again
             if current_m["score_a"] >= current_m["max_points"] and current_m["score_a"] > current_m["score_b"]:
                 current_m["score_a"] -= 1
             elif current_m["score_b"] >= current_m["max_points"] and current_m["score_b"] > current_m["score_a"]:
                 current_m["score_b"] -= 1
-            # Failsafe bounds
             if current_m["score_a"] >= current_m["max_points"]: current_m["score_a"] = current_m["max_points"] - 1
             if current_m["score_b"] >= current_m["max_points"]: current_m["score_b"] = current_m["max_points"] - 1
             
-    # 5. Remove from Match History Array
     if "match_history" in st.session_state.room_data:
         st.session_state.room_data["match_history"] = [
             m for m in st.session_state.room_data["match_history"] if m["id"] != match["id"]
@@ -372,7 +395,7 @@ elif selected_tab == "🏆 Tournament Setup":
     )
 
     match_type = st.radio("Format:", ["Singles", "Doubles"], index=1) 
-    max_pts = st.number_input("Target Points (Qualifiers):", value=15, min_value=1) 
+    max_pts = st.number_input("Target Points (Qualifiers):", value=21, min_value=1) 
     final_pts = st.number_input("Target Points (Grand Final):", value=21, min_value=1) 
     
     col_btn1, col_btn2 = st.columns(2)                       
@@ -581,7 +604,6 @@ elif selected_tab == "🎮 Live Scoreboard":
                     st.success(f"✅ **{winner_name}** won the match! (Stats saved to Leaderboard)")
             st.divider()
 
-    # --- MATCH HISTORY AND UNDO SECTION ---
     st.markdown("---")
     st.subheader("⏪ Recent Match History")
     
@@ -590,12 +612,10 @@ elif selected_tab == "🎮 Live Scoreboard":
     if not match_history:
         st.info("No matches have been finished recently. Once a match is completed, it will appear here so you can undo it if needed.")
     else:
-        # Display the last 10 matches (reversed, so the most recent is at the top)
         for m in reversed(match_history[-10:]):
             t_a = " & ".join(m["team_a"])
             t_b = " & ".join(m["team_b"])
             
-            # Figure out who won this historical match
             winner = t_a if m["score_a"] > m["score_b"] else t_b
             
             col_info, col_btn = st.columns([5, 1])
@@ -658,7 +678,7 @@ elif selected_tab == "📈 Leaderboards":
         if st.button("⚠️ Hard Reset Leaderboards", use_container_width=True, type="secondary"):
             st.session_state.room_data["ind_leaderboard"] = {}   
             st.session_state.room_data["team_leaderboard"] = {}  
-            st.session_state.room_data["match_history"] = [] # Clear history on hard reset too
+            st.session_state.room_data["match_history"] = [] 
             save_local_data(room_code, st.session_state.room_data) 
             st.rerun()
     with col_r2:
