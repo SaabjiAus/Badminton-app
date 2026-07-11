@@ -654,7 +654,7 @@ elif selected_tab == "📈 Leaderboards":
             }
             
         if display_profiles:     
-            df_ind = pd.DataFrame.from_dict(display_profiles, orient='index').sort_values(by=["Wins", "Grand Finals Won", "Total Points"], ascending=[False, False, False])
+            df_ind = pd.DataFrame.from_dict(display_profiles, orient='index').sort_values(by=["Grand Finals Won", "Wins", "Total Points"], ascending=[False, False, False])
             st.dataframe(df_ind, use_container_width=True)       
         else: st.info("No stats available.")
             
