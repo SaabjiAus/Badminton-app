@@ -77,9 +77,9 @@ if "room_id" not in st.session_state:
     if "room" in st.query_params:
         st.session_state.room_id = st.query_params["room"]
     else:
-        st.title("🏸 Clubhouse Portal & 🍽️ Diet Planner Gateway") 
-        st.markdown("Enter a sports club code to manage matches, or enter the dedicated meal code below.")
-        room_input = st.text_input("Access Code (e.g., SUNDAY-SMASH or MEAL-PLANNER)", "").strip().upper()
+        st.title("🏸 Clubhouse Portal ") 
+        st.markdown("Enter a sports club code to manage matches")
+        room_input = st.text_input("Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
         
         if st.button("Enter Dashboard", type="primary"): 
             if room_input == "ADMIN-STATS":              
