@@ -1,5 +1,5 @@
 # ==============================================================================
-# 🏸 BADMINTON CLUBHOUSE + 🍽️ MEAL PLANNER ENGINE - PRODUCTION BUILD
+# 🏸 BADMINTON CLUBHOUSE - STREAMLIT CLOUD + SUPABASE PRODUCTION ENGINE
 # ==============================================================================
 
 import streamlit as st
@@ -14,8 +14,8 @@ from supabase import create_client, Client
 
 # --- GLOBAL STAGE INITIALIZATION ---
 st.set_page_config(
-    page_title="Clubhouse Cloud",
-    page_icon="🍽️",
+    page_title="Badminton Clubhouse Cloud",
+    page_icon="🏸",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -40,7 +40,7 @@ def get_local_data(room_name):
             for key, default_val in [
                 ("players", []), ("teams", []), ("matches", []), 
                 ("expenses", {}), ("ind_leaderboard", {}), ("team_leaderboard", {}),
-                ("match_history", []), ("meals", []),
+                ("match_history", []), 
                 ("created_at", str(datetime.date.today()))
             ]:
                 if key not in data:             
@@ -52,8 +52,7 @@ def get_local_data(room_name):
         
         default_data = {
             "players": [], "teams": [], "matches": [], "expenses": {},             
-            "ind_leaderboard": {}, "team_leaderboard": {}, "match_history": [],
-            "meals": [],
+            "ind_leaderboard": {}, "team_leaderboard": {}, "match_history": [],    
             "created_at": str(datetime.date.today()), "total_visits": 1           
         }
         supabase_client.table("clubhouse_rooms").insert({"room_id": room_name, "room_data": default_data}).execute()
@@ -61,7 +60,7 @@ def get_local_data(room_name):
         
     except Exception as e:
         st.error(f"🚨 Supabase Fetch Failure: {e}")
-        return {"players": [], "teams": [], "matches": [], "expenses": {}, "meals": []}
+        return {"players": [], "teams": [], "matches": [], "expenses": {}, "ind_leaderboard": {}, "team_leaderboard": {}, "match_history": []}
 
 def save_local_data(room_name, data):
     try:
@@ -77,19 +76,14 @@ if "room_id" not in st.session_state:
     if "room" in st.query_params:
         st.session_state.room_id = st.query_params["room"]
     else:
-        st.title("🏸 Clubhouse Portal ") 
-        st.markdown("Enter a sports club code to manage matches")
-        room_input = st.text_input("Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
+        st.title("🏸 Badminton Clubhouse Portal (Cloud Mode)") 
+        room_input = st.text_input("Group Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
         
         if st.button("Enter Dashboard", type="primary"): 
             if room_input == "ADMIN-STATS":              
                 st.session_state.room_id = "ADMIN_PANEL"
                 st.query_params["room"] = "ADMIN_PANEL"
                 st.rerun()                               
-            elif room_input == "MEAL-PLANNER":
-                st.session_state.room_id = "MEAL_PLANNER_PANEL"
-                st.query_params["room"] = "MEAL_PLANNER_PANEL"
-                st.rerun()
             elif room_input:                             
                 st.session_state.room_id = room_input
                 st.query_params["room"] = room_input
@@ -98,11 +92,11 @@ if "room_id" not in st.session_state:
 
 room_code = st.session_state.room_id
 
-if "room_data" not in st.session_state and room_code not in ["ADMIN_PANEL", "MEAL_PLANNER_PANEL"]:
+if "room_data" not in st.session_state and room_code != "ADMIN_PANEL":
     st.session_state.room_data = get_local_data(room_code) 
 
 # ==============================================================================
-# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (ADMIN PANEL)
+# 🛡️ SECTION 3: SYSTEM AUDIT INSIGHTS (ADMIN PANEL) - WITH DATABASE EDITOR
 # ==============================================================================
 
 if st.session_state.room_id == "ADMIN_PANEL":
@@ -128,8 +122,7 @@ if st.session_state.room_id == "ADMIN_PANEL":
                     "Created": room_payload.get("created_at", "Legacy"),
                     "Visits": room_payload.get("total_visits", 1), 
                     "Players": len(room_payload.get("players", [])), 
-                    "Matches": len(room_payload.get("matches", [])),
-                    "Meals Logged": len(room_payload.get("meals", []))
+                    "Matches": len(room_payload.get("matches", []))     
                 })
     except Exception as e:
         st.error(f"Admin Data Retrieval Failure: {e}")
@@ -147,6 +140,7 @@ if st.session_state.room_id == "ADMIN_PANEL":
             room_to_edit_resp = supabase_client.table("clubhouse_rooms").select("room_data").eq("room_id", selected_del_room).execute()
             if room_to_edit_resp.data:
                 raw_json = room_to_edit_resp.data[0]["room_data"]
+                
                 edited_json_str = st.text_area(f"Edit Raw JSON Data for '{selected_del_room}':", value=json.dumps(raw_json, indent=4), height=400)
                 
                 col_save, col_del = st.columns(2)
@@ -167,198 +161,7 @@ if st.session_state.room_id == "ADMIN_PANEL":
                             st.rerun()
                         except Exception as e:
                             st.error(f"Failed to delete: {e}")
-    st.stop()
-
-# ==============================================================================
-# 🍽️ SECTION: DEDICATED MEAL PLANNER & CALENDAR WORKSPACE
-# ==============================================================================
-
-if st.session_state.room_id == "MEAL_PLANNER_PANEL":
-    if "meal_data" not in st.session_state:
-        st.session_state.meal_data = get_local_data("MEAL_PLANNER_PANEL")
-        
-    st.title("🍽️ Smart Predictive Meal Planner & Calendar")
-    st.caption("Log what you eat now to dynamically generate next month's proactive recommendations.")
-    
-    if st.button("⬅️ Exit Meal Workspace"):
-        del st.session_state.room_id
-        if "meal_data" in st.session_state: del st.session_state.meal_data
-        if "room" in st.query_params: del st.query_params["room"]
-        st.rerun()
-        
-    st.markdown("---")
-    
-    def compute_next_month_date(current_date):
-        year = current_date.year
-        month = current_date.month + 1
-        if month > 12:
-            month = 1
-            year += 1
-        day = current_date.day
-        while True:
-            try:
-                return datetime.date(year, month, day)
-            except ValueError:
-                day -= 1
-
-    with st.expander("✨ Log a New Meal Entry", expanded=True):
-        with st.form("add_meal_form", clear_on_submit=True):
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                meal_name = st.text_input("What did you eat?", placeholder="e.g., Grilled Chicken Rice Bowl").strip()
-                meal_type = st.selectbox("Meal Category:", ["Breakfast", "Lunch", "Dinner", "Snack"])
-            with col_m2:
-                meal_date = st.date_input("Date Eaten:", datetime.date.today())
-                meal_time = st.time_input("Time Eaten:", datetime.datetime.now().time())
-                
-            submit_meal = st.form_submit_button("Log Meal & Project to Next Month", type="primary")
-            
-            if submit_meal:
-                if not meal_name:
-                    st.error("Please provide a name for your meal record.")
-                else:
-                    meal_id = str(uuid.uuid4())
-                    timestamp_str = datetime.datetime.combine(meal_date, meal_time).isoformat()
-                    
-                    next_month_date = compute_next_month_date(meal_date)
-                    projection_timestamp_str = datetime.datetime.combine(next_month_date, meal_time).isoformat()
-                    
-                    new_entry = {
-                        "id": meal_id, "name": meal_name, "type": meal_type,
-                        "timestamp": timestamp_str, "is_projection": False
-                    }
-                    projected_entry = {
-                        "id": str(uuid.uuid4()), "name": meal_name, "type": meal_type,
-                        "timestamp": projection_timestamp_str, "is_projection": True, "parent_id": meal_id
-                    }
-                    
-                    st.session_state.meal_data["meals"].append(new_entry)
-                    st.session_state.meal_data["meals"].append(projected_entry)
-                    save_local_data("MEAL_PLANNER_PANEL", st.session_state.meal_data)
-                    st.success(f"Successfully logged '{meal_name}' and projected its schedule for {next_month_date}!")
-                    st.rerun()
-
-    all_meals = st.session_state.meal_data.get("meals", [])
-    
-    if all_meals:
-        st.markdown("### 📊 Interactive Diet Timeline & Calendar Workspace")
-        
-        # Interactive filters
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            cat_filter = st.selectbox("Filter Workspace by Category:", ["All", "Breakfast", "Lunch", "Dinner", "Snack"])
-        with col_f2:
-            status_filter = st.radio("Filter Workspace by Status:", ["All Records", "✅ Logged Actual Eaten", "🔮 Projected Next Month"], horizontal=True)
-            
-        filtered_meals = []
-        for m in all_meals:
-            dt = datetime.datetime.fromisoformat(m["timestamp"])
-            is_proj = m.get("is_projection", False)
-            
-            if cat_filter != "All" and m["type"] != cat_filter:
-                continue
-            if status_filter == "✅ Logged Actual Eaten" and is_proj:
-                continue
-            if status_filter == "🔮 Projected Next Month" and not is_proj:
-                continue
-                
-            filtered_meals.append({
-                "Date": dt.date(),
-                "Time": dt.time().strftime("%H:%M"),
-                "Meal": m["name"],
-                "Category": m["type"],
-                "Status": "🔮 Projected" if is_proj else "✅ Eaten"
-            })
-            
-        if filtered_meals:
-            f_df = pd.DataFrame(filtered_meals).sort_values(by=["Date", "Time"], ascending=True)
-            
-            # Draw beautiful timeline cards grouped by date
-            for date, group in f_df.groupby("Date"):
-                st.markdown(f"##### 🗓️ {date.strftime('%A, %b %d, %Y')}")
-                num_items = len(group)
-                cols = st.columns(min(4, num_items))
-                for idx, (_, row) in enumerate(group.iterrows()):
-                    col_idx = idx % len(cols)
-                    with cols[col_idx]:
-                        emoji = "🥞" if row["Category"] == "Breakfast" else "🍲" if row["Category"] == "Lunch" else "🥩" if row["Category"] == "Dinner" else "🍿"
-                        bg_color = "#f0fdf4" if row["Status"] == "✅ Eaten" else "#f5f3ff"
-                        border_color = "#bbf7d0" if row["Status"] == "✅ Eaten" else "#ddd6fe"
-                        text_color = "#166534" if row["Status"] == "✅ Eaten" else "#5b21b6"
-                        
-                        st.markdown(
-                            f"""
-                            <div style="border: 1px solid {border_color}; padding: 12px; border-radius: 8px; background-color: {bg_color}; margin-bottom: 10px;">
-                                <div style="font-size: 1.3em; margin-bottom: 4px;">{emoji}</div>
-                                <div style="font-weight: 600; color: #1f2937;">{row['Meal']}</div>
-                                <div style="font-size: 0.85em; color: #4b5563; margin-top: 4px;">{row['Time']} • {row['Category']}</div>
-                                <div style="margin-top: 8px; font-size: 0.8em; font-weight: 700; color: {text_color};">{row['Status']}</div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-        else:
-            st.info("No logs match the selected filter configuration.")
-
-        st.markdown("### 🛠️ Modify & Delete Logged Entries")
-        
-        meal_df_list = []
-        for m in all_meals:
-            dt = datetime.datetime.fromisoformat(m["timestamp"])
-            meal_df_list.append({
-                "ID": m["id"], "Meal Name": m["name"], "Category": m["type"],
-                "Date": dt.date(), "Time": dt.time().strftime("%H:%M"),
-                "Type": "🔮 Projected Next Month" if m.get("is_projection", False) else "✅ Logged Actual Eaten"
-            })
-            
-        df_display = pd.DataFrame(meal_df_list).sort_values(by=["Date", "Time"], ascending=False)
-        st.dataframe(df_display.drop(columns=["ID"]), use_container_width=True)
-        
-        target_options = {f"[{row['Type']}] {row['Meal Name']} ({row['Date']} @ {row['Time']})": row["ID"] for _, row in df_display.iterrows()}
-        selected_target_label = st.selectbox("Select a Record to Edit or Remove:", list(target_options.keys()))
-        selected_id = target_options[selected_target_label]
-        
-        target_obj = next((m for m in all_meals if m["id"] == selected_id), None)
-        
-        if target_obj:
-            col_ed1, col_ed2 = st.columns(2)
-            with col_ed1:
-                edit_name = st.text_input("Modify Name Value:", value=target_obj["name"], key="edit_name")
-                edit_type = st.selectbox("Modify Category Selection:", ["Breakfast", "Lunch", "Dinner", "Snack"], index=["Breakfast", "Lunch", "Dinner", "Snack"].index(target_obj["type"]), key="edit_type")
-            with col_ed2:
-                current_dt = datetime.datetime.fromisoformat(target_obj["timestamp"])
-                edit_date = st.date_input("Modify Date Value:", value=current_dt.date(), key="edit_date")
-                edit_time = st.time_input("Modify Time Value:", value=current_dt.time(), key="edit_time")
-                
-            col_actions = st.columns([1, 1, 2])
-            with col_actions[0]:
-                if st.button("💾 Apply Modifications", type="primary", use_container_width=True):
-                    target_obj["name"] = edit_name
-                    target_obj["type"] = edit_type
-                    target_obj["timestamp"] = datetime.datetime.combine(edit_date, edit_time).isoformat()
-                    
-                    if not target_obj.get("is_projection", False):
-                        nxt_d = compute_next_month_date(edit_date)
-                        proj_twin = next((m for m in all_meals if m.get("parent_id") == target_obj["id"]), None)
-                        if proj_twin:
-                            proj_twin["name"] = edit_name
-                            proj_twin["type"] = edit_type
-                            proj_twin["timestamp"] = datetime.datetime.combine(nxt_d, edit_time).isoformat()
-                            
-                    save_local_data("MEAL_PLANNER_PANEL", st.session_state.meal_data)
-                    st.toast("Entry modified successfully!")
-                    st.rerun()
-                    
-            with col_actions[1]:
-                if st.button("🗑️ Remove Entry", use_container_width=True):
-                    st.session_state.meal_data["meals"] = [m for m in all_meals if m["id"] != selected_id and m.get("parent_id") != selected_id]
-                    save_local_data("MEAL_PLANNER_PANEL", st.session_state.meal_data)
-                    st.toast("Record wiped successfully!")
-                    st.rerun()
-    else:
-        st.info("No meals logged yet. Use the form above to record your first meal entry!")
-
-    st.stop()
+    st.stop() 
 
 # ==============================================================================
 # 🗂️ SECTION 4: MAIN DASHBOARD LAYOUT & HELPER FUNCTIONS
@@ -374,7 +177,6 @@ with col2:
         if "room_data" in st.session_state: del st.session_state.room_data                  
         if "room" in st.query_params: del st.query_params["room"]
         if "tab" in st.query_params: del st.query_params["tab"] 
-        if "active_tab" in st.session_state: del st.session_state.active_tab
         st.rerun()
 
 st.markdown("---")
@@ -404,13 +206,11 @@ def log_match_to_history(match):
     t_a_name = " & ".join(sorted(match["team_a"]))               
     t_b_name = " & ".join(sorted(match["team_b"]))               
     
-    if t_a_name not in team_lb: team_lb[t_a_name] = {"Wins": 0, "Losses": 0, "Points": 0, "Grand Finals Won": 0}
-    if t_b_name not in team_lb: team_lb[t_b_name] = {"Wins": 0, "Losses": 0, "Points": 0, "Grand Finals Won": 0}
+    if t_a_name not in team_lb: team_lb[t_a_name] = {"Wins": 0, "Losses": 0, "Points": 0}
+    if t_b_name not in team_lb: team_lb[t_b_name] = {"Wins": 0, "Losses": 0, "Points": 0}
     
     if "Losses" not in team_lb[t_a_name]: team_lb[t_a_name]["Losses"] = 0
     if "Losses" not in team_lb[t_b_name]: team_lb[t_b_name]["Losses"] = 0
-    if "Grand Finals Won" not in team_lb[t_a_name]: team_lb[t_a_name]["Grand Finals Won"] = 0
-    if "Grand Finals Won" not in team_lb[t_b_name]: team_lb[t_b_name]["Grand Finals Won"] = 0
         
     for p in match["team_a"] + match["team_b"]:
         if p not in ind_lb:
@@ -433,7 +233,6 @@ def log_match_to_history(match):
     if match["score_a"] > match["score_b"]:                     
         team_lb[t_a_name]["Wins"] += 1
         team_lb[t_b_name]["Losses"] += 1
-        if is_gf: team_lb[t_a_name]["Grand Finals Won"] += 1
         for p in match["team_a"]: 
             ind_lb[p]["Wins"] += 1        
             if is_gf: ind_lb[p]["Grand Finals Won"] += 1
@@ -442,7 +241,6 @@ def log_match_to_history(match):
     else:                                                       
         team_lb[t_b_name]["Wins"] += 1                          
         team_lb[t_a_name]["Losses"] += 1
-        if is_gf: team_lb[t_b_name]["Grand Finals Won"] += 1
         for p in match["team_b"]: 
             ind_lb[p]["Wins"] += 1        
             if is_gf: ind_lb[p]["Grand Finals Won"] += 1
@@ -454,6 +252,7 @@ def log_match_to_history(match):
     
     logged_record = copy.deepcopy(match)
     logged_record["logged_at"] = str(datetime.datetime.now())
+    
     st.session_state.room_data["match_history"].append(logged_record)
     
     if len(st.session_state.room_data["match_history"]) > 20:
@@ -486,9 +285,7 @@ def undo_match_stats(match):
             elif is_doubles: ind_lb[p]["Doubles Played"] = max(0, ind_lb[p]["Doubles Played"] - 1)
             
     if match["score_a"] > match["score_b"]:                     
-        if t_a_name in team_lb: 
-            team_lb[t_a_name]["Wins"] = max(0, team_lb[t_a_name]["Wins"] - 1)
-            if is_gf: team_lb[t_a_name]["Grand Finals Won"] = max(0, team_lb[t_a_name]["Grand Finals Won"] - 1)
+        if t_a_name in team_lb: team_lb[t_a_name]["Wins"] = max(0, team_lb[t_a_name]["Wins"] - 1)
         if t_b_name in team_lb: team_lb[t_b_name]["Losses"] = max(0, team_lb[t_b_name]["Losses"] - 1)
         for p in match["team_a"]: 
             if p in ind_lb: 
@@ -497,9 +294,7 @@ def undo_match_stats(match):
         for p in match["team_b"]:
             if p in ind_lb: ind_lb[p]["Losses"] = max(0, ind_lb[p]["Losses"] - 1)
     else:
-        if t_b_name in team_lb: 
-            team_lb[t_b_name]["Wins"] = max(0, team_lb[t_b_name]["Wins"] - 1)       
-            if is_gf: team_lb[t_b_name]["Grand Finals Won"] = max(0, team_lb[t_b_name]["Grand Finals Won"] - 1)
+        if t_b_name in team_lb: team_lb[t_b_name]["Wins"] = max(0, team_lb[t_b_name]["Wins"] - 1)
         if t_a_name in team_lb: team_lb[t_a_name]["Losses"] = max(0, team_lb[t_a_name]["Losses"] - 1)
         for p in match["team_b"]: 
             if p in ind_lb:
@@ -526,7 +321,7 @@ def undo_match_stats(match):
     save_local_data(room_code, st.session_state.room_data)
 
 # ==============================================================================
-# 🏆 SECTION 5: NAVIGATION WORKSPACE TABS (GLITCH-FREE CALL BACK STATE)
+# 🏆 SECTION 5: NAVIGATION WORKSPACE TABS (5 DISTINCT TABS)
 # ==============================================================================
 
 tabs = [
@@ -536,27 +331,12 @@ tabs = [
     "🎮 Live Scoreboard", 
     "📈 Leaderboards"
 ] 
+current_url_tab = st.query_params.get("tab", tabs[0])
+if current_url_tab not in tabs: current_url_tab = tabs[0]
+default_tab_idx = tabs.index(current_url_tab)
 
-# Initialize base state values safely from query parameter defaults
-if "active_tab" not in st.session_state:
-    url_param = st.query_params.get("tab", tabs[0])
-    st.session_state.active_tab = url_param if url_param in tabs else tabs[0]
-
-# Callback event updates keys prior to running the template block logic
-def run_tab_state_sync():
-    st.query_params["tab"] = st.session_state.tab_selector
-    st.session_state.active_tab = st.session_state.tab_selector
-
-current_tab_index = tabs.index(st.session_state.active_tab)
-
-selected_tab = st.radio(
-    "Navigation Workspace:", 
-    tabs, 
-    index=current_tab_index, 
-    horizontal=True, 
-    key="tab_selector", 
-    on_change=run_tab_state_sync
-)
+selected_tab = st.radio("Navigation Workspace:", tabs, index=default_tab_idx, horizontal=True) 
+st.query_params["tab"] = selected_tab
 
 # ==============================================================================
 # TAB 1: ROSTER & EXPENSES
@@ -669,7 +449,6 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures 
                 save_local_data(room_code, st.session_state.room_data)
                 
-                st.session_state.active_tab = "🎮 Live Scoreboard"
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -700,7 +479,6 @@ elif selected_tab == "🏆 Tournament Setup":
                 st.session_state.room_data["matches"] = fixtures
                 save_local_data(room_code, st.session_state.room_data)
                 
-                st.session_state.active_tab = "🎮 Live Scoreboard"
                 st.query_params["tab"] = "🎮 Live Scoreboard"
                 st.rerun()
 
@@ -715,6 +493,7 @@ elif selected_tab == "⚡ Custom Match":
     req_players = 1 if q_format == "Singles" else 2
     
     all_players = st.session_state.room_data["players"]
+    
     current_team_a = st.session_state.get("q_team_a", [])
     current_team_b = st.session_state.get("q_team_b", [])
     
@@ -743,7 +522,6 @@ elif selected_tab == "⚡ Custom Match":
             st.session_state.room_data["matches"].append(new_match)
             save_local_data(room_code, st.session_state.room_data)
             
-            st.session_state.active_tab = "🎮 Live Scoreboard"
             st.query_params["tab"] = "🎮 Live Scoreboard"
             st.rerun()
 
@@ -830,12 +608,14 @@ elif selected_tab == "🎮 Live Scoreboard":
     st.subheader("⏪ Recent Match History")
     
     match_history = st.session_state.room_data.get("match_history", [])
+    
     if not match_history:
-        st.info("No matches have been finished recently.")
+        st.info("No matches have been finished recently. Once a match is completed, it will appear here so you can undo it if needed.")
     else:
         for m in reversed(match_history[-10:]):
             t_a = " & ".join(m["team_a"])
             t_b = " & ".join(m["team_b"])
+            
             winner = t_a if m["score_a"] > m["score_b"] else t_b
             
             col_info, col_btn = st.columns([5, 1])
@@ -882,15 +662,17 @@ elif selected_tab == "📈 Leaderboards":
         st.markdown("### 🏅 Team Leaderboard")
         if team_stats:
             for t_name in team_stats:
-                if "Losses" not in team_stats[t_name]: team_stats[t_name]["Losses"] = 0
-                if "Grand Finals Won" not in team_stats[t_name]: team_stats[t_name]["Grand Finals Won"] = 0
-                
-            df_team = pd.DataFrame.from_dict(team_stats, orient='index').sort_values(by=["Grand Finals Won", "Wins", "Points"], ascending=[False, False, False])
-            if not df_team.empty: df_team = df_team[["Grand Finals Won", "Wins", "Losses", "Points"]]
+                if "Losses" not in team_stats[t_name]:
+                    team_stats[t_name]["Losses"] = 0
+                    
+            df_team = pd.DataFrame.from_dict(team_stats, orient='index').sort_values(by=["Wins", "Points"], ascending=[False, False])
+            if not df_team.empty:
+                df_team = df_team[["Wins", "Losses", "Points"]]
             st.dataframe(df_team, use_container_width=True)
         else: st.info("No stats available.")
 
     st.markdown("---")
+    
     col_r1, col_r2 = st.columns(2)
     with col_r1:
         if st.button("⚠️ Hard Reset Leaderboards", use_container_width=True, type="secondary"):
