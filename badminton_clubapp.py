@@ -14,7 +14,7 @@ from supabase import create_client, Client
 
 # --- GLOBAL STAGE INITIALIZATION ---
 st.set_page_config(
-    page_title="Clubhouse & Meal Planner Cloud",
+    page_title="Clubhouse Cloud",
     page_icon="🍽️",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -79,7 +79,7 @@ if "room_id" not in st.session_state:
     else:
         st.title("🏸 Clubhouse Portal & 🍽️ Diet Planner Gateway") 
         st.markdown("Enter a sports club code to manage matches, or enter the dedicated meal code below.")
-        room_input = st.text_input("Access Code (e.g., SUNDAY-SMASH)", "").strip().upper()
+        room_input = st.text_input("Access Code (e.g., SUNDAY-SMASH or MEAL-PLANNER)", "").strip().upper()
         
         if st.button("Enter Dashboard", type="primary"): 
             if room_input == "ADMIN-STATS":              
@@ -243,17 +243,62 @@ if st.session_state.room_id == "MEAL_PLANNER_PANEL":
     if all_meals:
         st.markdown("### 📊 Interactive Diet Timeline & Calendar Workspace")
         
-        <GenerateWidget height="620px">
-        {/* Reason: Allows the user to interactively click and view chronological dietary milestones and projected meals on a custom data chart. */}
-        ```json
-        {
-          "widgetSpec": {
-            "height": "620px",
-            "prompt": "**Objective:** Render an elegant interactive data explorer dashboard tracking food items eaten versus automatic next-month recommendations. \n **Data State:** Use a dataset derived from the logged meals array including timestamps, fields, and types. \n **Strategy:** Standard Layout. \n **Inputs:** Category Selector (All, Breakfast, Lunch, Dinner, Snack), Status Toggle Filter (Actual Eaten vs Projected Next Month). \n **Visuals/Behavior:** Build a clean grid layout representing days of the month. Flag logged dates with green badges and projected dates with blue/purple future badges. Clicking any block lists the detailed name and time stamps, allowing structural breakdown."
-          }
-        }
-        ```
-        </GenerateWidget>
+        # Interactive filters
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            cat_filter = st.selectbox("Filter Workspace by Category:", ["All", "Breakfast", "Lunch", "Dinner", "Snack"])
+        with col_f2:
+            status_filter = st.radio("Filter Workspace by Status:", ["All Records", "✅ Logged Actual Eaten", "🔮 Projected Next Month"], horizontal=True)
+            
+        filtered_meals = []
+        for m in all_meals:
+            dt = datetime.datetime.fromisoformat(m["timestamp"])
+            is_proj = m.get("is_projection", False)
+            
+            if cat_filter != "All" and m["type"] != cat_filter:
+                continue
+            if status_filter == "✅ Logged Actual Eaten" and is_proj:
+                continue
+            if status_filter == "🔮 Projected Next Month" and not is_proj:
+                continue
+                
+            filtered_meals.append({
+                "Date": dt.date(),
+                "Time": dt.time().strftime("%H:%M"),
+                "Meal": m["name"],
+                "Category": m["type"],
+                "Status": "🔮 Projected" if is_proj else "✅ Eaten"
+            })
+            
+        if filtered_meals:
+            f_df = pd.DataFrame(filtered_meals).sort_values(by=["Date", "Time"], ascending=True)
+            
+            # Draw beautiful timeline cards grouped by date
+            for date, group in f_df.groupby("Date"):
+                st.markdown(f"##### 🗓️ {date.strftime('%A, %b %d, %Y')}")
+                num_items = len(group)
+                cols = st.columns(min(4, num_items))
+                for idx, (_, row) in enumerate(group.iterrows()):
+                    col_idx = idx % len(cols)
+                    with cols[col_idx]:
+                        emoji = "🥞" if row["Category"] == "Breakfast" else "🍲" if row["Category"] == "Lunch" else "🥩" if row["Category"] == "Dinner" else "🍿"
+                        bg_color = "#f0fdf4" if row["Status"] == "✅ Eaten" else "#f5f3ff"
+                        border_color = "#bbf7d0" if row["Status"] == "✅ Eaten" else "#ddd6fe"
+                        text_color = "#166534" if row["Status"] == "✅ Eaten" else "#5b21b6"
+                        
+                        st.markdown(
+                            f"""
+                            <div style="border: 1px solid {border_color}; padding: 12px; border-radius: 8px; background-color: {bg_color}; margin-bottom: 10px;">
+                                <div style="font-size: 1.3em; margin-bottom: 4px;">{emoji}</div>
+                                <div style="font-weight: 600; color: #1f2937;">{row['Meal']}</div>
+                                <div style="font-size: 0.85em; color: #4b5563; margin-top: 4px;">{row['Time']} • {row['Category']}</div>
+                                <div style="margin-top: 8px; font-size: 0.8em; font-weight: 700; color: {text_color};">{row['Status']}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+        else:
+            st.info("No logs match the selected filter configuration.")
 
         st.markdown("### 🛠️ Modify & Delete Logged Entries")
         
